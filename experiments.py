@@ -65,53 +65,54 @@ if __name__ == '__main__':
 
 
     dataset = 'reuters21578'
-    configurations= [[True,False],[1000,0.1,None],[-1,90,10],['tfidf'], ['l2', 'l1'], [None, 'balanced']]
+    #configurations= [[True,False],[1000,0.1,None],[-1,90,10],['tfidf'], ['l2', 'l1'], [None, 'balanced']]
+    configurations = [[True, False], [1000, 0.1, None], [-1], ['tfidf'], ['l2', 'l1'], [None, 'balanced']]
     configurations = list(itertools.product(*configurations))
 
     outfile='./comparative.csv'
     results = Results(outfile)
 
+    for dataset in ['20newsgroups', 'ohsumed']:
+        for i,config in enumerate(configurations):
+            print('completed {}/{}'.format(i,len(configurations)))
+            #print('loading data', dataset)
+            sublinear_tf, feat_sel, top_categories, vectorizer, norm, class_weight = config
+            mlsvmcomputed = results.already_computed(MLSVC.__name__, dataset, top_categories, vectorizer, sublinear_tf, feat_sel, norm, class_weight)
+            svmcomputed = results.already_computed(svmlearner.__name__, dataset, top_categories, vectorizer, sublinear_tf, feat_sel, norm, class_weight)
 
-    for i,config in enumerate(configurations):
-        print('completed {}/{}'.format(i,len(configurations)))
-        #print('loading data', dataset)
-        sublinear_tf, feat_sel, top_categories, vectorizer, norm, class_weight = config
-        mlsvmcomputed = results.already_computed(MLSVC.__name__, dataset, top_categories, vectorizer, sublinear_tf, feat_sel, norm, class_weight)
-        svmcomputed = results.already_computed(svmlearner.__name__, dataset, top_categories, vectorizer, sublinear_tf, feat_sel, norm, class_weight)
+            if mlsvmcomputed and svmcomputed: continue
 
-        if mlsvmcomputed and svmcomputed: continue
+            data = TextCollectionLoader(dataset=dataset, vectorizer=vectorizer, sublinear_tf=sublinear_tf, feat_sel=feat_sel, top_categories=top_categories, norm=norm)
+            Xtr, ytr = data.get_devel_set()
+            Xte, yte = data.get_test_set()
+            Xtr.sort_indices()
+            Xte.sort_indices()
 
-        data = TextCollectionLoader(dataset=dataset, vectorizer=vectorizer, sublinear_tf=sublinear_tf, feat_sel=feat_sel, top_categories=top_categories, norm=norm)
-        Xtr, ytr = data.get_devel_set()
-        Xte, yte = data.get_test_set()
-        Xtr.sort_indices()
-        Xte.sort_indices()
+            # l1 = scipy.sparse.linalg.norm(Xtr, ord=1, axis=1)
+            # print(np.mean(l1), np.std(l1))
+            # continue
 
-        # l1 = scipy.sparse.linalg.norm(Xtr, ord=1, axis=1)
-        # print(np.mean(l1), np.std(l1))
-        # continue
+            if not mlsvmcomputed:
+                mlsvm = MLSVC(verbose=False, n_jobs=n_jobs, estimator=svmlearner, class_weight=class_weight)
+                mlsvm.fit(Xtr, ytr, param_grid={'C':c_range}, cv=cv)
+                training_time = mlsvm.training_time
+                Y_ = mlsvm.predict(Xte)
+                metrics = [metric(yte, Y_) for metric in evaluation_metrics]
+                results.write_result(MLSVC.__name__, dataset, top_categories, vectorizer, sublinear_tf, feat_sel, norm, class_weight, metrics, training_time, mlsvm.best_params())
 
-        if not mlsvmcomputed:
-            mlsvm = MLSVC(verbose=False, n_jobs=n_jobs, estimator=svmlearner, class_weight=class_weight)
-            mlsvm.fit(Xtr, ytr, param_grid={'C':c_range}, cv=cv)
-            training_time = mlsvm.training_time
-            Y_ = mlsvm.predict(Xte)
-            metrics = [metric(yte, Y_) for metric in evaluation_metrics]
-            results.write_result(MLSVC.__name__, dataset, top_categories, vectorizer, sublinear_tf, feat_sel, norm, class_weight, metrics, training_time, mlsvm.best_params())
-
-        if not svmcomputed:
-            svm = GridSearchCV(OneVsRestClassifier(svmlearner(class_weight=class_weight), n_jobs=n_jobs),
-                               refit=True, param_grid={'estimator__C':c_range}, cv=cv)
-            #try:
-            time_ini = time()
-            svm.fit(Xtr,ytr)
-            training_time = time() - time_ini
-            Y_ = svm.predict(Xte)
-            metrics = [metric(yte, Y_) for metric in evaluation_metrics]
-            results.write_result(svmlearner.__name__, dataset, top_categories, vectorizer, sublinear_tf, feat_sel, norm,
-                                 class_weight, metrics, training_time, svm.best_params_)
-            # except Exception as e:
-            #     print(e)
-            #     print('error in fit')
+            if not svmcomputed:
+                svm = GridSearchCV(OneVsRestClassifier(svmlearner(class_weight=class_weight), n_jobs=n_jobs),
+                                   refit=True, param_grid={'estimator__C':c_range}, cv=cv)
+                #try:
+                time_ini = time()
+                svm.fit(Xtr,ytr)
+                training_time = time() - time_ini
+                Y_ = svm.predict(Xte)
+                metrics = [metric(yte, Y_) for metric in evaluation_metrics]
+                results.write_result(svmlearner.__name__, dataset, top_categories, vectorizer, sublinear_tf, feat_sel, norm,
+                                     class_weight, metrics, training_time, svm.best_params_)
+                # except Exception as e:
+                #     print(e)
+                #     print('error in fit')
 
 
