@@ -25,7 +25,7 @@ class Results:
         else:
             self.previous_results = ''
             with open(outfile, 'w') as out:
-                out.write('\t'.join(['Learner', 'dataset', 'weight', 'feat_sel', 'norm', 'balanced'] + [f.__name__ for f in evaluation_metrics]+['time'+'optimC'])+'\n')
+                out.write('\t'.join(['Learner', 'dataset', 'weight', 'feat_sel', 'norm', 'balanced'] + [f.__name__ for f in evaluation_metrics]+['time','optimC'])+'\n')
 
     def write_result(self, learner, dataset, cat_sel, weight, sublinear_tf, feat_sel, norm, balanced, metrics, time, optimC):
         id = self._compose_id(learner, dataset, cat_sel, weight, sublinear_tf, feat_sel, norm, balanced)
@@ -49,7 +49,7 @@ class Results:
         return id in self.previous_results
 
     def _compose_id(self, learner, dataset, cat_sel, weight, sublinear_tf, feat_sel, norm, balanced):
-        dataset = dataset+'@'+(cat_sel if cat_sel!=-1 else 'ALL')
+        dataset = dataset+'@'+(str(cat_sel) if cat_sel!=-1 else 'ALL')
         weight = ('log_' if sublinear_tf else '') + weight
         feat_sel = str(feat_sel) if feat_sel!=-1 else 'ALL'
         balanced = 'yes' if balanced else 'no'
