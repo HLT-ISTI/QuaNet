@@ -72,7 +72,7 @@ if __name__ == '__main__':
     outfile='./comparative.csv'
     results = Results(outfile)
 
-    for dataset in ['20newsgroups', 'ohsumed']:
+    for dataset in ['ohsumed']:
         for i,config in enumerate(configurations):
             print('completed {}/{}'.format(i,len(configurations)))
             #print('loading data', dataset)
