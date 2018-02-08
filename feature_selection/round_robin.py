@@ -1,7 +1,7 @@
 import sys, os
 import numpy as np
 from joblib import Parallel, delayed
-from tsr_function import *
+from feature_selection.tsr_function import *
 import time
 from os.path import join
 import pickle
