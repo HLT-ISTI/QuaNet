@@ -1,3 +1,4 @@
+import disable_sklearn_warnings
 import torch
 import torch.nn as nn
 import torchvision.datasets as dsets
@@ -14,11 +15,11 @@ from scipy.sparse import csr_matrix
 dataset = 'reuters21578'
 vectorizer = 'tfidf'
 #sublinear_tf = True
-feat_sel = 1000
+feat_sel = 500
 
 
 class Net(nn.Module):
-    def __init__(self, input_size, hidden_size, num_classes, dropout_p=0.1):
+    def __init__(self, input_size, hidden_size, num_classes, dropout_p=0.5):
         super(Net, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
         # self.fc2 = nn.Linear(hidden_size, int(hidden_size/2))
