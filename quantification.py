@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from sklearn.svm import LinearSVC
 from torch.autograd import Variable
 import numpy as np
-from dataset_loader import TextCollectionLoader
+from data.dataset_loader import TextCollectionLoader
 from sklearn.model_selection import GridSearchCV
 from sklearn.multiclass import OneVsRestClassifier
 from scipy.sparse import csr_matrix
