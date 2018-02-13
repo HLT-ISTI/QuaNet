@@ -1,4 +1,4 @@
-import disable_sklearn_warnings
+import util.disable_sklearn_warnings
 import argparse
 import torch
 import torch.nn as nn
@@ -48,7 +48,7 @@ def prepare_variables(X, y):
 
     return X,y
 
-def sample_collection(X, y=None, min_size=100):
+def sample_collection(X, y=None, min_size=1000):
     nD = X.shape[0]
     doc_indexes = np.arange(nD)
     np.random.shuffle(doc_indexes)
@@ -71,12 +71,12 @@ def train(X, y, net, evaluation_measure=None, num_steps = 10000, loss_ave_steps 
     loss_ave = 0
     for i in range(1, num_steps+1):
         Xs, ys = sample_collection(X, y)
-        Xs, ys = prepare_variables(Xs, ys)
+        Xs, sample_prev = prepare_variables(Xs, ys)
 
         # Forward + Backward + Optimize
         optimizer.zero_grad()
         estim_prev = net(Xs)
-        loss = criterion(estim_prev, ys)
+        loss = criterion(estim_prev, sample_prev)
         loss.backward()
         optimizer.step()
 
@@ -94,9 +94,7 @@ def test(X, y, net, evaluation_measure, verbose=True):
     net.train(mode=False)
 
     X, true_prevalences = prepare_variables(X, y)
-
     estimated_prevalences = net(X)
-
     mae = evaluation_measure(estimated_prevalences, true_prevalences)
 
     if verbose:
@@ -195,7 +193,6 @@ def main(args):
     print('Net-MAE:\t%.4f' % mae_net)
     print('SVM-MAE:\t%.4f' % mae_svm)
     print('Naive-MAE:\t%.4f' % mae_naive)
-
 
 
 # TODO: random indexing or projection
