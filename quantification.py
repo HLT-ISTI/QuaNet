@@ -62,7 +62,7 @@ def sample_collection(X, y=None, min_size=1000):
 
 
 # Training the Model
-def train(X, y, net, evaluation_measure=None, num_steps = 10000, loss_ave_steps = 100, test_steps=1000, learning_rate = 0.001, weight_decay = 0.0001, Xte=None, yte=None):
+def train(X, y, net, evaluation_measure=None, num_steps = 10000, loss_ave_steps = 10, test_steps=1000, learning_rate = 0.001, weight_decay = 0.0001, Xte=None, yte=None):
     net.train(mode=True)
 
     criterion = nn.MSELoss()
@@ -214,7 +214,7 @@ if __name__ == '__main__':
                         help='disables CUDA training')
     parser.add_argument('--lr', '--learning-rate', default=0.001, type=float, metavar='LR',
                         help='initial learning rate')
-    parser.add_argument('--weight-decay', '--wd', default=0, type=float, metavar='W',
+    parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float, metavar='W',
                         help='weight decay (default: 1e-4)') #previously: 1e-4
     parser.add_argument('--dataset', '--d', default='reuters21578@115F500Wlogtfidf', type=str, metavar='D',
                         help='dataset to load in {} (default: {})'.format(', '.join(valid_datasets), valid_datasets[0]))
