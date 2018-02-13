@@ -115,7 +115,7 @@ class TextCollectionLoader:
 
         if self.top_categories > -1:
             nC = self.devel.target.shape[1]
-            assert self.top_categories < nC, 'requested more categories than the number of available categories'
+            assert self.top_categories <= nC, 'requested more categories than the number of available categories'
             prev = np.sum(self.devel.target, axis=0)
             most_populated = np.argsort(prev)[::-1][:self.top_categories]
             self.devel.target = self.devel.target[:, most_populated]
