@@ -29,20 +29,22 @@ class Net(nn.Module):
         x = F.relu(x)
         x = F.dropout(x, self.dropout_p, training=self.training)
         x = self.fc2(x)
-        x = F.relu(x)
+        if self.training == False:
+            x = torch.clamp(x, 0, 1)
+        #x = F.sigmoid(x)
         # out = F.relu(out)
         # out = F.dropout(out, self.dropout_p, training=self.training)
         # out = self.fc3(out)
-        return x
+        return x.view(1, -1)
 
 def variable_from_numpy(numpy):
-    var = Variable(torch.from_numpy(numpy).float())
+    var = Variable(torch.from_numpy(numpy).float(), requires_grad=False)
     return var.cuda() if args.cuda else var
 
 def prepare_variables(X, y):
     nD = X.shape[0]
     X = variable_from_numpy(X.toarray() if issparse(X) else X)
-    y = variable_from_numpy(np.sum(y, axis=0) / nD)
+    y = variable_from_numpy(np.sum(y, axis=0) / nD).view(1, -1)
 
     return X,y
 
@@ -60,7 +62,7 @@ def sample_collection(X, y=None, min_size=100):
 
 
 # Training the Model
-def train(X, y, net, evaluation_measure=None, num_steps = 10000, loss_ave_steps = 10, test_steps=1000, learning_rate = 0.001, weight_decay = 0.0001):
+def train(X, y, net, evaluation_measure=None, num_steps = 10000, loss_ave_steps = 100, test_steps=1000, learning_rate = 0.001, weight_decay = 0.0001, Xte=None, yte=None):
     net.train(mode=True)
 
     criterion = nn.MSELoss()
@@ -84,7 +86,7 @@ def train(X, y, net, evaluation_measure=None, num_steps = 10000, loss_ave_steps 
             loss_ave = 0
 
         if evaluation_measure is not None and i % test_steps == 0:
-            test(X, y, net, evaluation_measure=evaluation_measure)
+            test(Xte, yte, net, evaluation_measure=evaluation_measure)
 
 
 # Test the Model
@@ -92,6 +94,7 @@ def test(X, y, net, evaluation_measure, verbose=True):
     net.train(mode=False)
 
     X, true_prevalences = prepare_variables(X, y)
+
     estimated_prevalences = net(X)
 
     mae = evaluation_measure(estimated_prevalences, true_prevalences)
@@ -101,7 +104,7 @@ def test(X, y, net, evaluation_measure, verbose=True):
         print('true:', true_prevalences)
         print('Net-MAE %.8f' % mae[0])
 
-    return mae
+    return mae[0]
 
 # ---------------------------------------------------------------
 # SVM routines
@@ -136,11 +139,12 @@ def test_svm(X, y, svm, evaluation_measure, verbose=True):
         print('true:', true_prevalences)
         print('SVM-MAE %.8f' % mae[0])
 
-    return mae
+    return mae[0]
 
 # ---------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------
+# helper to parse the code for a dataset: <collection>[@<cats>][F<feats>][W<[log]weight>], e.g.: reuters21578@90F1000Wlogtfidf
 def parse_dataset_code(dataset_code):
     import re
     def try_get(regex, default):
@@ -160,7 +164,6 @@ def parse_dataset_code(dataset_code):
         log = False
     return dataset, categories, features, weight, log
 
-
 def main(args):
     dataset, categories, features, weight, log = parse_dataset_code(args.dataset)
     print('loading ' + args.dataset)
@@ -176,14 +179,33 @@ def main(args):
     mean_absolute_error = nn.L1Loss()
 
     Xtr, ytr = data.get_devel_set()
-    train(Xtr, ytr, net, evaluation_measure=mean_absolute_error, num_steps=args.iter, learning_rate=args.lr, weight_decay=args.weight_decay)
-
     Xte, yte = data.get_test_set()
-    test(Xte, yte, net, evaluation_measure=mean_absolute_error)
+
+    train(Xtr, ytr, net, evaluation_measure=mean_absolute_error, Xte=Xte, yte=yte, num_steps=args.iter, learning_rate=args.lr, weight_decay=args.weight_decay)
+
+    mae_net = test(Xte, yte, net, evaluation_measure=mean_absolute_error)
 
     svm = train_svm(Xtr, ytr)
-    test_svm(Xte, yte, svm, evaluation_measure=mean_absolute_error)
+    mae_svm = test_svm(Xte, yte, svm, evaluation_measure=mean_absolute_error)
 
+    tr_prev = torch.from_numpy(np.sum(ytr, axis=0))
+    te_prev = torch.from_numpy(np.sum(yte, axis=0))
+    mae_naive = mean_absolute_error(tr_prev, te_prev)[0]
+
+    print('Net-MAE:\t%.4f' % mae_net)
+    print('SVM-MAE:\t%.4f' % mae_svm)
+    print('Naive-MAE:\t%.4f' % mae_naive)
+
+
+
+# TODO: random indexing or projection
+# TODO: evaluation trials-policies
+# TODO: evaluation metrics
+# TODO: batch? loss-plot?
+# TODO: sampling policies
+# TODO: KLD loss?
+# TODO: normalize the FxF matrix?
+# TODO: baseline that outputs the training prevalences
 if __name__ == '__main__':
     valid_datasets = ['reuters21578']
     parser = argparse.ArgumentParser(description='Text Quantification Net')
@@ -195,8 +217,8 @@ if __name__ == '__main__':
                         help='disables CUDA training')
     parser.add_argument('--lr', '--learning-rate', default=0.001, type=float, metavar='LR',
                         help='initial learning rate')
-    parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float, metavar='W',
-                        help='weight decay (default: 1e-4)')
+    parser.add_argument('--weight-decay', '--wd', default=0, type=float, metavar='W',
+                        help='weight decay (default: 1e-4)') #previously: 1e-4
     parser.add_argument('--dataset', '--d', default='reuters21578@115F500Wlogtfidf', type=str, metavar='D',
                         help='dataset to load in {} (default: {})'.format(', '.join(valid_datasets), valid_datasets[0]))
 
