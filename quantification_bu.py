@@ -12,6 +12,9 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.multiclass import OneVsRestClassifier
 from scipy.sparse import csr_matrix
 
+np.random.seed(1)
+torch.manual_seed(1)
+
 dataset = 'reuters21578'
 vectorizer = 'tfidf'
 #sublinear_tf = True
@@ -23,8 +26,6 @@ class Net(nn.Module):
     def __init__(self, input_size, hidden_size, num_classes, dropout_p=0.5):
         super(Net, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_size)
-        # self.fc2 = nn.Linear(hidden_size, int(hidden_size/2))
-        # self.fc3 = nn.Linear(int(hidden_size/2), num_classes)
         self.fc2 = nn.Linear(hidden_size, num_classes)
         self.dropout_p = dropout_p
 
@@ -33,9 +34,6 @@ class Net(nn.Module):
         out = F.relu(out)
         out = F.dropout(out, self.dropout_p, training=self.training)
         out = self.fc2(out)
-        # out = F.relu(out)
-        # out = F.dropout(out, self.dropout_p, training=self.training)
-        # out = self.fc3(out)
         return out
 
 use_cuda = torch.cuda.is_available()
