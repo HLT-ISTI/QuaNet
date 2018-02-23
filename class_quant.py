@@ -1,4 +1,5 @@
 import random
+import time
 
 import numpy as np
 import torch
@@ -56,8 +57,8 @@ def sample_data(x, y, prevalence, min_sample_length=min_sample_length, max_sampl
     sampled_x, sampled_y = zip(*paired)
 
     sampled_x = variable(torch.LongTensor(sampled_x).transpose(0, 1))
-    sampled_y = variable(torch.FloatTensor(sampled_y))
-    prevalence = variable(torch.FloatTensor([prevalence]))
+    sampled_y = variable(torch.FloatTensor(sampled_y).view(-1, 1))
+    prevalence = variable(torch.FloatTensor([prevalence]).view([1, 1]))
 
     return sampled_x, sampled_y, prevalence
 
@@ -139,8 +140,31 @@ quant_lstm_hidden_size = 32
 quant_lstm_layers = 1
 quant_lin_layers_sizes = [32, 16]
 
-net = MyNet(max_features, embedding_size, class_lstm_hidden_size, class_lstm_layers, class_lin_layers_sizes,
-            quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes)
+class_loss_function = torch.nn.MSELoss()  # torch.nn.CrossEntropyLoss()
+quant_loss_function = torch.nn.MSELoss()
+
+
+def accuracy(y_hard_true, y_soft_pred):
+    pred = y_soft_pred > 0.5
+    truth = y_hard_true > 0.5
+    acc = torch.mean((pred == truth).type(torch.FloatTensor)).data[0]
+    return acc
+
+
+steps = 20000
+test_every = 100
+show_steps = 20
+
+starting_step = 0
+split_learning = True
+switch_to_split = 10000
+
+if starting_step > 0:
+    with open('net_' + str(starting_step) + '.pkl', mode='br') as modelfile:
+        net = torch.load(modelfile)
+else:
+    net = MyNet(max_features, embedding_size, class_lstm_hidden_size, class_lstm_layers, class_lin_layers_sizes,
+                quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes)
 if use_cuda:
     net.cuda()
 
@@ -148,48 +172,46 @@ print(net)
 
 lr = 0.0001
 
-# optimizer = torch.optim.SGD(net.parameters(), lr=lr)
 optimizer = torch.optim.Adam(net.parameters(), lr=lr, weight_decay=1e-4)
 
-class_loss_function = torch.nn.MSELoss()  # torch.nn.CrossEntropyLoss()
-quant_loss_function = torch.nn.MSELoss()
-
-
-def accuracy(y_hard_true, y_soft_pred):
-    return torch.sum(y_hard_true[y_soft_pred.data.view(-1) > 0.5]).float() / y_hard_true.size()[0]
-
-
-steps = 100000
-test_every = 100
-show_steps = 20
-
-with open('hist.txt', mode='w', encoding='utf-8') as outputfile, \
-        open('test.txt', mode='w', encoding='utf-8') as testoutputfile:
+with open('hist_' + str(time.time()) + '.txt', mode='w', encoding='utf-8') as outputfile, \
+        open('test' + str(time.time()) + '.txt', mode='w', encoding='utf-8') as testoutputfile:
     class_loss_sum, quant_loss_sum, acc_sum = 0, 0, 0
-    for step in range(1, steps + 1):
+    for step in range(starting_step + 1, starting_step + steps + 1):
+        if step > switch_to_split:
+            split_learning = False
+
         prevalence = random.random()
         x, y_class, y_quant = sample_data(x_train, y_train, prevalence)
 
         optimizer.zero_grad()
 
-        y_class_pred = net.forward_class(x)
-        class_loss = class_loss_function(y_class_pred, y_class)
-        y_quant_pred = net.forward_quant(y_class.view(([-1, 1])))
-        quant_loss = quant_loss_function(y_quant_pred, y_quant.view([1, 1]))
+        if split_learning:
+            y_class_pred = net.forward_class(x)
+            class_loss = class_loss_function(y_class_pred, y_class)
+            y_quant_pred = net.forward_quant(y_class)
+            quant_loss = quant_loss_function(y_quant_pred, y_quant)
 
-        class_loss.backward()
-        quant_loss.backward()
+            class_loss.backward()
+            quant_loss.backward()
+        else:
+            y_class_pred = net.forward_class(x)
+            y_quant_pred = net.forward_quant(y_class_pred)
+            quant_loss = quant_loss_function(y_quant_pred, y_quant)
+
+            quant_loss.backward()
 
         optimizer.step()
 
-        class_loss_sum += class_loss.data[0]
+        if split_learning:
+            class_loss_sum += class_loss.data[0]
         quant_loss_sum += quant_loss.data[0]
-        acc_sum += accuracy(y_class, y_class_pred).data[0]
+        acc_sum += accuracy(y_class, y_class_pred)
 
         if step % show_steps == 0:
-            print('step=%d class_loss=%.5f quant_loss=%.5f acc=%.2f' % (
+            print('step=%d class_loss=%.5f quant_loss=%.5f class_acc=%.2f' % (
                 step, class_loss_sum / show_steps, quant_loss_sum / show_steps, 100 * acc_sum / show_steps))
-            print('step=%d class_loss=%.5f quant_loss=%.5f acc=%.2f' % (
+            print('step=%d class_loss=%.5f quant_loss=%.5f class_acc=%.2f' % (
                 step, class_loss_sum / show_steps, quant_loss_sum / show_steps, 100 * acc_sum / show_steps),
                   file=outputfile)
             class_loss_sum, quant_loss_sum, acc_sum = 0, 0, 0
@@ -197,13 +219,18 @@ with open('hist.txt', mode='w', encoding='utf-8') as outputfile, \
         if step % test_every == 0:
             num_test = 5
             for _ in range(num_test):
-                with open('net_' + str(step) + '.pkl', mode='bw') as modelfile:
+                with open('net_' + str(step) + (
+                '_split' if split_learning else ('_endtoend-' + str(switch_to_split))) + '.pkl',
+                          mode='bw') as modelfile:
                     torch.save(net, modelfile)
                 prevalence = random.random()
                 test_x, test_y_class, test_y_quant = sample_data(x_test, y_test, prevalence)
                 y_class_pred = net.forward_class(test_x)
-                y_quant_pred = net.forward_quant(test_y_class.view(([-1, 1])))
-                print('step', step, 'acc', accuracy(test_y_class, y_class_pred).data[0], 'true_prev',
-                      test_y_quant.data[0], 'pred_prev', y_quant_pred.data[0][0])
-                print('step', step, 'acc', accuracy(test_y_class, y_class_pred).data[0], 'true_prev',
-                      test_y_quant.data[0], 'pred_prev', y_quant_pred.data[0][0], file=testoutputfile)
+                y_quant_pred = net.forward_quant(test_y_class)
+                real_y_quant_pred = net.forward_quant(y_class_pred)
+                print('step', step, 'split', split_learning, 'class_acc', accuracy(test_y_class, y_class_pred),
+                      'true_prev', test_y_quant.data[0][0], 'pred_teacher_prev', y_quant_pred.data[0][0],
+                      'pred_end_to_end_prev', real_y_quant_pred.data[0][0])
+                print('step', step, 'split', split_learning, 'class_acc', accuracy(test_y_class, y_class_pred),
+                      'true_prev', test_y_quant.data[0][0], 'pred_teacher_prev', y_quant_pred.data[0][0],
+                      'pred_end_to_end_prev', real_y_quant_pred.data[0][0], file=testoutputfile)
