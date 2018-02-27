@@ -220,7 +220,6 @@ with open('hist_' + str(time.time()) + '.txt', mode='w', encoding='utf-8') as ou
                 y_class_to_repeat = y_class
             else:
                 y_class_to_repeat = y_class_pred.squeeze(-1)
-            print(y_class_to_repeat.size())
             for _ in range(quant_shuffles):
                 y_class_perms.append(y_class_to_repeat.data[torch.cuda.LongTensor(np.random.permutation(len(y_class)).tolist())].unsqueeze(0))
                 y_quant_repeat.append((y_quant.data))
