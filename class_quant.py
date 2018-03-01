@@ -86,7 +86,7 @@ class MyNet(torch.nn.Module):
         self.quant_lstm_hidden_size = quant_lstm_hidden_size
         self.quant_lstm_layers = quant_lstm_layers
 
-        self.classout2hidden = torch.nn.Linear(1, self.quant_lstm_hidden_size)  # conditioning on class_out
+        self.classout2hidden = torch.nn.Linear(1, self.quant_lstm_hidden_size)
         self.quant_lstm = torch.nn.LSTM(quant_lstm_hidden_size, quant_lstm_hidden_size, quant_lstm_layers)
         prev_size = self.quant_lstm_hidden_size
         self.set_lins = torch.nn.ModuleList()
@@ -108,7 +108,6 @@ class MyNet(torch.nn.Module):
         embedded = self.embedding(x)
         rnn_output, rnn_hidden = self.class_lstm(embedded, self.init_class_hidden(x.size()[1]))
         abstracted = rnn_hidden[0][-1]
-        abstracted = abstracted.unsqueeze(-2)
         for linear in self.class_lins:
             abstracted = F.relu(linear(abstracted))
         output = self.class_output(abstracted)
@@ -118,7 +117,7 @@ class MyNet(torch.nn.Module):
     def forward_quant(self, x):
         # quantification
         lstm_input = self.classout2hidden(x)
-        lstm_input = lstm_input.transpose(0,1)
+        lstm_input = lstm_input.transpose(0, 1)
         rnn_output, rnn_hidden = self.quant_lstm(lstm_input, self.init_quant_hidden(x.size()[0]))
         abstracted = rnn_hidden[0][-1]
         for linear in self.set_lins:
@@ -200,7 +199,7 @@ optimizer = torch.optim.Adam(net.parameters(), lr=lr, weight_decay=1e-4)
 quant_shuffles = 100
 
 with open('hist_' + str(time.time()) + '.txt', mode='w', encoding='utf-8') as outputfile, \
-        open('test' + str(time.time()) + '.txt', mode='w', encoding='utf-8') as testoutputfile:
+        open('test_' + str(time.time()) + '.txt', mode='w', encoding='utf-8') as testoutputfile:
     class_loss_sum, quant_loss_sum, acc_sum = 0, 0, 0
     for step in range(starting_step + 1, steps + 1):
         if step > stop_teacher_step:
@@ -221,7 +220,9 @@ with open('hist_' + str(time.time()) + '.txt', mode='w', encoding='utf-8') as ou
             else:
                 y_class_to_repeat = y_class_pred.squeeze(-1)
             for _ in range(quant_shuffles):
-                y_class_perms.append(y_class_to_repeat.data[torch.cuda.LongTensor(np.random.permutation(len(y_class)).tolist())].unsqueeze(0))
+                y_class_perms.append(y_class_to_repeat.data[
+                    torch.cuda.LongTensor(np.random.permutation(len(y_class)).tolist())].unsqueeze(
+                    0))
                 y_quant_repeat.append((y_quant.data))
             y_class_perms = variable(torch.cat(y_class_perms))
             y_quant = variable(torch.cat(y_quant_repeat))
@@ -245,10 +246,10 @@ with open('hist_' + str(time.time()) + '.txt', mode='w', encoding='utf-8') as ou
         acc_sum += accuracy(y_class, y_class_pred)
 
         if step % status_every == 0:
-            print('step=%d class_loss=%.5f quant_loss=%.5f class_acc=%.2f' % (
-                step, class_loss_sum / status_every, quant_loss_sum / status_every, 100 * acc_sum / status_every))
-            print('step=%d class_loss=%.5f quant_loss=%.5f class_acc=%.2f' % (
-                step, class_loss_sum / status_every, quant_loss_sum / status_every, 100 * acc_sum / status_every),
+            print(f'step {step} class_loss {class_loss_sum / status_every:.5}',
+                  f'quant_loss {quant_loss_sum / status_every:.5} class_acc {acc_sum / status_every:.3}')
+            print(f'step {step} class_loss {class_loss_sum / status_every:.5}',
+                  f'quant_loss {quant_loss_sum / status_every:.5} class_acc {acc_sum / status_every:.3}',
                   file=outputfile)
             class_loss_sum, quant_loss_sum, acc_sum = 0, 0, 0
 
@@ -259,17 +260,15 @@ with open('hist_' + str(time.time()) + '.txt', mode='w', encoding='utf-8') as ou
                 test_x, test_y_class, test_y_quant = sample_data(x_test, y_test, prevalence)
                 y_class_pred = net.forward_class(test_x)
                 y_quant_pred = net.forward_quant(test_y_class.unsqueeze(0))
-                real_y_quant_pred = net.forward_quant(y_class_pred)
-                print('step', step, 'split', split_learning, 'teacher', use_teacher, 'class_acc',
-                      accuracy(test_y_class, y_class_pred),
-                      'true_prev', test_y_quant.data[0][0], 'class_prev', classify_and_count(y_class_pred),
-                      'pred_teacher_prev', y_quant_pred.data[0][0], 'pred_end_to_end_prev',
-                      real_y_quant_pred.data[0][0])
-                print('step', step, 'split', split_learning, 'teacher', use_teacher, 'class_acc',
-                      accuracy(test_y_class, y_class_pred),
-                      'true_prev', test_y_quant.data[0][0], 'class_prev', classify_and_count(y_class_pred),
-                      'pred_teacher_prev', y_quant_pred.data[0][0], 'pred_end_to_end_prev',
-                      real_y_quant_pred.data[0][0], file=testoutputfile)
+                real_y_quant_pred = net.forward_quant(y_class_pred.unsqueeze(0))
+                print(f'step {step} split {split_learning} teacher {use_teacher}',
+                      f'class_acc {accuracy(test_y_class, y_class_pred):.3} true_prev {test_y_quant.data[0][0]:.3}',
+                      f'count_prev {classify_and_count(y_class_pred):.3} teach_prev {y_quant_pred.data[0][0]:.3}',
+                      f'pred_prev {real_y_quant_pred.data[0][0]:.3}')
+                print(f'step {step} split {split_learning} teacher {use_teacher}',
+                      f'class_acc {accuracy(test_y_class, y_class_pred):.3} true_prev {test_y_quant.data[0][0]:.3}',
+                      f'count_prev {classify_and_count(y_class_pred):.3} teach_prev {y_quant_pred.data[0][0]:.3}',
+                      f'pred_prev {real_y_quant_pred.data[0][0]:.3}', file=testoutputfile)
 
         if step % save_every == 0:
             filename = get_name(step, split_learning, use_teacher, stop_teacher_step, end_to_end_step)
