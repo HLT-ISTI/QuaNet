@@ -254,21 +254,20 @@ with open('hist_' + str(time.time()) + '.txt', mode='w', encoding='utf-8') as ou
             class_loss_sum, quant_loss_sum, acc_sum = 0, 0, 0
 
         if step % test_every == 0:
-            num_test = 5
-            for _ in range(num_test):
-                prevalence = random.random()
-                test_x, test_y_class, test_y_quant = sample_data(x_test, y_test, prevalence)
-                y_class_pred = net.forward_class(test_x)
-                y_quant_pred = net.forward_quant(test_y_class.unsqueeze(0))
-                real_y_quant_pred = net.forward_quant(y_class_pred.unsqueeze(0))
-                print(f'step {step} split {split_learning} teacher {use_teacher}',
-                      f'class_acc {accuracy(test_y_class, y_class_pred):.3} true_prev {test_y_quant.data[0][0]:.3}',
-                      f'count_prev {classify_and_count(y_class_pred):.3} teach_prev {y_quant_pred.data[0][0]:.3}',
-                      f'pred_prev {real_y_quant_pred.data[0][0]:.3}')
-                print(f'step {step} split {split_learning} teacher {use_teacher}',
-                      f'class_acc {accuracy(test_y_class, y_class_pred):.3} true_prev {test_y_quant.data[0][0]:.3}',
-                      f'count_prev {classify_and_count(y_class_pred):.3} teach_prev {y_quant_pred.data[0][0]:.3}',
-                      f'pred_prev {real_y_quant_pred.data[0][0]:.3}', file=testoutputfile)
+            for prevalence in np.linspace(0, 1, 11):
+                for _ in range(4):
+                    test_x, test_y_class, test_y_quant = sample_data(x_test, y_test, prevalence)
+                    y_class_pred = net.forward_class(test_x)
+                    y_quant_pred = net.forward_quant(test_y_class.unsqueeze(0))
+                    real_y_quant_pred = net.forward_quant(y_class_pred.unsqueeze(0))
+                    print(f'step {step} split {split_learning} teacher {use_teacher}',
+                          f'class_acc {accuracy(test_y_class, y_class_pred):.3} true_prev {test_y_quant.data[0][0]:.3}',
+                          f'count_prev {classify_and_count(y_class_pred):.3} teach_prev {y_quant_pred.data[0][0]:.3}',
+                          f'pred_prev {real_y_quant_pred.data[0][0]:.3}')
+                    print(f'step {step} split {split_learning} teacher {use_teacher}',
+                          f'class_acc {accuracy(test_y_class, y_class_pred):.3} true_prev {test_y_quant.data[0][0]:.3}',
+                          f'count_prev {classify_and_count(y_class_pred):.3} teach_prev {y_quant_pred.data[0][0]:.3}',
+                          f'pred_prev {real_y_quant_pred.data[0][0]:.3}', file=testoutputfile)
 
         if step % save_every == 0:
             filename = get_name(step, split_learning, use_teacher, stop_teacher_step, end_to_end_step)
