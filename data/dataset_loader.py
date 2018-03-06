@@ -21,6 +21,31 @@ class Dataset:
         self.target = target
         self.target_names = target_names
 
+# helper to parse the code for a TC dataset:
+# <collection>[@<cats>][F<feats>][W<[log]weight>], e.g.: reuters21578@90F1000Wlogtfidf
+def parse_dataset_code(dataset_code, rep_mode='sparse'):
+    import re
+    def try_get(regex, default):
+        try: return re.search(regex, dataset_code).group(1)
+        except: return default
+    dataset = [d for d in TextCollectionLoader.valid_datasets if dataset_code.startswith(d)]
+    if len(dataset)!=1: raise ValueError('unknown dataset code')
+    else:
+        dataset = dataset[0]
+    categories = int(try_get('.*@(\d+).*', -1))
+    features = int(try_get('.*F(\d+).*', None))
+    weight = try_get('.*W([a-z]+).*', 'logtfidf')
+    if weight.startswith('log'):
+        weight=weight[3:]
+        log = True
+    else:
+        log = False
+
+    print('loading ' + dataset, categories, features, weight, log)
+    return TextCollectionLoader(dataset=dataset, vectorizer=weight, sublinear_tf=log, feat_sel=features,
+                                rep_mode=rep_mode, top_categories=categories)
+
+
 class TextCollectionLoader:
 
     valid_datasets = ['reuters21578', '20newsgroups', 'ohsumed', 'ohsumed20k']#, 'movie_reviews', 'sentence_polarity', 'imdb']
