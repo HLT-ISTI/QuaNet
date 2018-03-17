@@ -35,6 +35,7 @@ class RoundRobin:
 
     def fit(self, X, y):
         nF = X.shape[1]
+        if len(y.shape)==1: y=y.reshape(-1,1)
         nC = y.shape[1]
         self.supervised_4cell_matrix = get_supervised_matrix(X, y, n_jobs=self.n_jobs)
         tsr_matrix = get_tsr_matrix(self.supervised_4cell_matrix, self._score_func)
