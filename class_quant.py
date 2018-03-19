@@ -31,7 +31,7 @@ def split_train_validation(x, y, val_portion):
 
 val_portion = 0.2
 
-x_ttrain, y_ttrain, x_val, y_val = split_train_validation(x_train, y_train, val_portion)
+x_train, y_train, x_val, y_val = split_train_validation(x_train, y_train, val_portion)
 
 print(len(x_train), 'train docs')
 print(len(x_val), 'validation docs')
