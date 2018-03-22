@@ -36,7 +36,7 @@ class LSTMTextClassificationNet(torch.nn.Module):
         for linear in self.class_lins:
             abstracted = F.dropout(F.relu(linear(abstracted)))
         output = self.class_output(abstracted)
-        class_output = F.softmax(output)
+        class_output = F.softmax(output,dim=1)
         return class_output
 
 
