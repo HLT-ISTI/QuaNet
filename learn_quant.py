@@ -97,7 +97,7 @@ def create_batch(yhat, y, batch_size=1000, sample_length=1000):
 
 quant_lstm_hidden_size = 32
 quant_lstm_layers = 1
-quant_lin_layers_sizes = [32, 16, classes]
+quant_lin_layers_sizes = [32, 16]
 
 quant_loss_function = torch.nn.MSELoss()
 
@@ -122,7 +122,7 @@ def fpr(yhat, y):
     return ((y * 2 + (yhat[:, 0] > 0.5)) == 1).sum() / (y == 0).sum()
 
 
-class_steps = 20000
+class_steps = 3000
 with open('class_net_' + str(class_steps) + '.pt', mode='br') as modelfile:
     class_net = torch.load(modelfile)
 
@@ -201,11 +201,12 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         quant_loss_sum += quant_loss.data[0]
 
         if step % status_every == 0:
-            print(f'step {step}',
-                  f'quant_loss {quant_loss_sum / status_every:.5}')
-            print(f'step {step}',
-                  f'quant_loss {quant_loss_sum / status_every:.5}',
-                  file=outputfile)
+            print('{} {:.5}'.format(step,quant_loss_sum / status_every))
+            # print(f'step {step}',
+            #       f'quant_loss {quant_loss_sum / status_every:.5}')
+            # print(f'step {step}',
+            #       f'quant_loss {quant_loss_sum / status_every:.5}',
+            #       file=outputfile)
             quant_loss_sum = 0
 
         if step % test_every == 0:
@@ -224,16 +225,17 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
                 else:
                     acc_prev = -1.
                     anet_prev = -1.
-                print(f'step {step}',
-                      f'p {test_batch_p[i,0].data[0]:.3f}',
-                      f'cc_p {cc_prev:.3f}', f'acc_p {acc_prev:.3f}',
-                      f'net_p {net_prev:.3f}',
-                      f'anet_p {anet_prev:.3f}')
-                print(f'step {step}',
-                      f'p {test_batch_p[i,0].data[0]:.3f}',
-                      f'cc_p {cc_prev:.3f}', f'acc_p {acc_prev:.3f}',
-                      f'net_p {net_prev:.3f}',
-                      f'anet_p {anet_prev:.3f}', file=testoutputfile)
+                print('step {} p={} ccp={} accp={} netp={} anetp={}'.format(step, test_batch_p[i,0].data[0], cc_prev, acc_prev, net_prev, anet_prev))
+                # print(f'step {step}',
+                #       f'p {test_batch_p[i,0].data[0]:.3f}',
+                #       f'cc_p {cc_prev:.3f}', f'acc_p {acc_prev:.3f}',
+                #       f'net_p {net_prev:.3f}',
+                #       f'anet_p {anet_prev:.3f}')
+                # print(f'step {step}',
+                #       f'p {test_batch_p[i,0].data[0]:.3f}',
+                #       f'cc_p {cc_prev:.3f}', f'acc_p {acc_prev:.3f}',
+                #       f'net_p {net_prev:.3f}',
+                #       f'anet_p {anet_prev:.3f}', file=testoutputfile)
 
         if step % save_every == 0:
             filename = get_name(step)

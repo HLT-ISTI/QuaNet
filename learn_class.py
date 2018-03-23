@@ -84,7 +84,7 @@ embedding_size = 200
 
 class_lstm_hidden_size = 128
 class_lstm_layers = 1
-class_lin_layers_sizes = [128, 64, classes]
+class_lin_layers_sizes = [128, 64]
 dropout = 0.2
 
 class_loss_function = torch.nn.MSELoss()
@@ -99,7 +99,7 @@ def accuracy(y_hard_true, y_soft_pred):
 class_steps = 20000
 status_every = 100
 test_every = 1000
-save_every = 10000
+save_every = 1000
 
 
 def get_name(step):
@@ -143,11 +143,12 @@ with open('class_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         acc_sum += accuracy(y_class, y_class_pred)
 
         if step % status_every == 0:
-            print(f'step {step} class_loss {class_loss_sum / status_every:.5}',
-                  f'class_acc {acc_sum / status_every:.3}')
-            print(f'step {step} class_loss {class_loss_sum / status_every:.5}',
-                  f'class_acc {acc_sum / status_every:.3}',
-                  file=outputfile)
+            print('{} {:.5f} {:.5f}'.format(step, class_loss_sum / status_every, acc_sum / status_every))
+            # print(f'step {step} class_loss {class_loss_sum / status_every:.5}',
+            #       f'class_acc {acc_sum / status_every:.3}')
+            # print(f'step {step} class_loss {class_loss_sum / status_every:.5}',
+            #       f'class_acc {acc_sum / status_every:.3}',
+            #       file=outputfile)
             class_loss_sum, acc_sum = 0, 0
 
         if step % test_every == 0:
@@ -155,10 +156,11 @@ with open('class_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
             test_var_x, test_var_y, y_quant = sample_data(x_test, y_test, prevalence, batch_size)
             y_class_pred = class_net.forward(test_var_x)
             test_accuracy = accuracy(test_var_y, y_class_pred)
-            print(f'step {step}',
-                  f'test_class_acc {test_accuracy:.3}')
-            print(f'step {step}',
-                  f'test_class_acc {test_accuracy:.3}', file=testoutputfile)
+            print('testacc {:.5f}'.format(test_accuracy))
+            # print(f'step {step}',
+            #       f'test_class_acc {test_accuracy:.3}')
+            # print(f'step {step}',
+            #       f'test_class_acc {test_accuracy:.3}', file=testoutputfile)
         if step % save_every == 0:
             filename = get_name(step)
             print('saving to', filename)
