@@ -1,9 +1,9 @@
 import random
-
 import numpy as np
 import torch
 from keras.datasets import imdb
 from keras.preprocessing import sequence
+from time import time
 
 from nets.classification import LSTMTextClassificationNet
 
@@ -80,11 +80,11 @@ def sample_data(x, y, prevalence, batch_size):
     return sampled_x, sampled_y, prevalence_var
 
 
-embedding_size = 200
+embedding_size = 100
 
 class_lstm_hidden_size = 128
 class_lstm_layers = 1
-class_lin_layers_sizes = [128, 64]
+class_lin_layers_sizes = [64]
 dropout = 0.2
 
 class_loss_function = torch.nn.MSELoss()
@@ -124,6 +124,7 @@ class_optimizer = torch.optim.Adam(class_net.parameters(), lr=lr, weight_decay=w
 with open('class_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         open('class_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
     class_loss_sum, quant_loss_sum, acc_sum = 0, 0, 0
+    t_init = time()
     for step in range(1, class_steps + 1):
 
         x, y_class, y_quant = sample_data(x_train, y_train, prevalence, batch_size)
@@ -143,13 +144,15 @@ with open('class_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         acc_sum += accuracy(y_class, y_class_pred)
 
         if step % status_every == 0:
-            print('{} {:.5f} {:.5f}'.format(step, class_loss_sum / status_every, acc_sum / status_every))
+            print('step {}\tloss {:.5f}\t acc {:.5f}\t v {:.2f} steps/s'.format(step, class_loss_sum / status_every,
+                                                                                acc_sum / status_every, status_every/(time()-t_init)))
             # print(f'step {step} class_loss {class_loss_sum / status_every:.5}',
             #       f'class_acc {acc_sum / status_every:.3}')
             # print(f'step {step} class_loss {class_loss_sum / status_every:.5}',
             #       f'class_acc {acc_sum / status_every:.3}',
             #       file=outputfile)
             class_loss_sum, acc_sum = 0, 0
+            t_init = time()
 
         if step % test_every == 0:
             class_net.eval()
