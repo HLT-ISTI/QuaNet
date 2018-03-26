@@ -226,7 +226,7 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
     val_yhat_neg = val_yhat[val_y != 1]
     for step in range(1, quant_steps + 1):
 
-        batch_yhat, batch_y, batch_p = create_batch_(val_yhat, val_y, batch_size, sample_length)
+        batch_yhat, batch_y, batch_p = create_batch_(val_yhat_pos, val_yhat_neg, batch_size, sample_length)
 
         quant_optimizer.zero_grad()
 
