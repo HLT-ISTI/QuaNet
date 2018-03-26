@@ -42,7 +42,7 @@ print('x_train shape:', x_train.shape)
 print('x_val shape:', x_val.shape)
 print('x_test shape:', x_test.shape)
 
-use_cuda = False
+use_cuda = True
 
 
 def choices(list, k):
