@@ -42,7 +42,7 @@ print('x_train shape:', x_train.shape)
 print('x_val shape:', x_val.shape)
 print('x_test shape:', x_test.shape)
 
-use_cuda = True
+use_cuda = False
 
 
 def choices(list, k):
@@ -72,6 +72,28 @@ def sample_data(x, y, prevalence, batch_size):
     paired = list(zip(sampled_x, sampled_y))
     random.shuffle(paired)
     sampled_x, sampled_y = zip(*paired)
+
+    sampled_x = variable(torch.LongTensor(sampled_x).transpose(0, 1))
+    sampled_y = variable(torch.FloatTensor(sampled_y).view(-1, 2))
+    prevalence_var = variable(torch.FloatTensor([prevalence, 1 - prevalence]).view([1, 2]))
+
+    return sampled_x, sampled_y, prevalence_var
+
+def sample_data_(x_pos, x_neg, prevalence, batch_size):
+    sample_pos_count = int(batch_size * prevalence)
+    sample_neg_count = batch_size - sample_pos_count
+    prevalence = sample_pos_count / batch_size
+
+    sampled_pos = x_pos[np.random.choice(x_pos.shape[0], sample_pos_count)]
+    sampled_neg = x_neg[np.random.choice(x_neg.shape[0], sample_neg_count)]
+    sampled_x = np.vstack((sampled_pos,sampled_neg))
+
+    pos_neg_code = np.array([[1,0],[0,1]])
+    sampled_y = np.repeat(pos_neg_code, repeats=[sample_pos_count,sample_neg_count], axis=0)
+
+    order = np.random.permutation(sample_pos_count+sample_neg_count)
+    sampled_x = sampled_x[order]
+    sampled_y = sampled_y[order]
 
     sampled_x = variable(torch.LongTensor(sampled_x).transpose(0, 1))
     sampled_y = variable(torch.FloatTensor(sampled_y).view(-1, 2))
@@ -121,13 +143,16 @@ prevalence = 0.5
 batch_size = 1000
 class_optimizer = torch.optim.Adam(class_net.parameters(), lr=lr, weight_decay=weight_decay)
 
+x_train_pos = x_train[y_train==1]
+x_train_neg = x_train[y_train!=1]
+
 with open('class_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         open('class_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
     class_loss_sum, quant_loss_sum, acc_sum = 0, 0, 0
     t_init = time()
     for step in range(1, class_steps + 1):
 
-        x, y_class, y_quant = sample_data(x_train, y_train, prevalence, batch_size)
+        x, y_class, y_quant = sample_data_(x_train_pos, x_train_neg, prevalence, batch_size)
 
         class_optimizer.zero_grad()
 
