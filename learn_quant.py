@@ -96,6 +96,39 @@ def create_batch(yhat, y, batch_size=1000, sample_length=1000):
 
     return batch_yhat_var, batch_y_var, batch_p_var
 
+def create_batch_(yhat_pos, yhat_neg, batch_size=1000, sample_length=1000):
+    batch_prevalences = np.random.random(batch_size)
+
+    batch_y = list()
+    batch_yhat = list()
+    real_prevalences = list()
+    for prevalence in batch_prevalences:
+        sample_pos_count = int(sample_length * prevalence)
+        if sample_pos_count == sample_length:
+            sample_pos_count = sample_length - 1
+        if sample_pos_count == 0:
+            sample_pos_count = 1
+        sample_neg_count = sample_length - sample_pos_count
+        real_prevalences.append(sample_pos_count / sample_length)
+
+        sample_yhat = np.concatenate((choices(yhat_pos, k=sample_pos_count), choices(yhat_neg, k=sample_neg_count)))
+        pos_neg_code = np.array([[1, 0], [0, 1]])
+        sample_y = np.repeat(pos_neg_code, repeats=[sample_pos_count, sample_neg_count], axis=0)
+
+        order = np.argsort(sample_yhat[:, 0])
+        sample_yhat = sample_yhat[order]
+        sample_y = sample_y[order]
+
+        batch_yhat.append(sample_yhat)
+        batch_y.append(sample_y)
+
+    batch_yhat_var = variable(torch.FloatTensor(batch_yhat).view(-1, sample_length, 2))
+    batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_length, 2))
+    real_prevalences = np.asarray(real_prevalences)
+    batch_p_var = variable(torch.FloatTensor(np.vstack([real_prevalences, 1 - real_prevalences]).transpose()))
+
+    return batch_yhat_var, batch_y_var, batch_p_var
+
 
 quant_lstm_hidden_size = 32
 quant_lstm_layers = 1
@@ -189,9 +222,11 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         open('quant_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
     quant_loss_sum = 0
     t_init = time()
+    val_yhat_pos = val_yhat[val_y == 1]
+    val_yhat_neg = val_yhat[val_y != 1]
     for step in range(1, quant_steps + 1):
 
-        batch_yhat, batch_y, batch_p = create_batch(val_yhat, val_y, batch_size, sample_length)
+        batch_yhat, batch_y, batch_p = create_batch_(val_yhat, val_y, batch_size, sample_length)
 
         quant_optimizer.zero_grad()
 
