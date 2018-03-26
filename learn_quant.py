@@ -45,7 +45,7 @@ print('x_test shape:', test_x.shape)
 min_sample_length = 1000
 max_sample_length = 1000
 
-use_cuda = False
+use_cuda = True
 
 
 def choices(values, k):
@@ -139,12 +139,14 @@ class_net.eval()
 val_yhat = list()
 test_yhat = list()
 batch_size = 100
+print('creating val_yhat')
 for i in range(0, val_x.shape[0], batch_size):
     val_yhat.extend(
         class_net.forward(
             variable(torch.LongTensor(val_x[i:i + batch_size]).transpose(0, 1))).data.tolist())
 val_yhat = np.asarray(val_yhat)
 
+print('creating test_yhat')
 for i in range(0, test_x.shape[0], batch_size):
     test_yhat.extend(
         class_net.forward(
@@ -182,6 +184,7 @@ quant_optimizer = torch.optim.Adam(quant_net.parameters(), lr=lr, weight_decay=w
 batch_size = 1000
 sample_length = 1000
 
+print('init quantification')
 with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         open('quant_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
     quant_loss_sum = 0
@@ -205,12 +208,8 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
 
         if step % status_every == 0:
             print('step {}\tloss {:.5}\tv {:.2f}'.format(step,quant_loss_sum / status_every, status_every/(time()-t_init)))
-            # print(f'step {step}',
-            #       f'quant_loss {quant_loss_sum / status_every:.5}')
-            # print(f'step {step}',
-            #       f'quant_loss {quant_loss_sum / status_every:.5}',
-            #       file=outputfile)
             quant_loss_sum = 0
+            t_init = time()
 
         if step % test_every == 0:
             quant_net.eval()
@@ -230,16 +229,6 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
                     anet_prev = -1.
                 print('step {} p={} ccp={} accp={} netp={} anetp={}'
                       .format(step, test_batch_p[i,0].data[0], cc_prev, acc_prev, net_prev, anet_prev))
-                # print(f'step {step}',
-                #       f'p {test_batch_p[i,0].data[0]:.3f}',
-                #       f'cc_p {cc_prev:.3f}', f'acc_p {acc_prev:.3f}',
-                #       f'net_p {net_prev:.3f}',
-                #       f'anet_p {anet_prev:.3f}')
-                # print(f'step {step}',
-                #       f'p {test_batch_p[i,0].data[0]:.3f}',
-                #       f'cc_p {cc_prev:.3f}', f'acc_p {acc_prev:.3f}',
-                #       f'net_p {net_prev:.3f}',
-                #       f'anet_p {anet_prev:.3f}', file=testoutputfile)
 
         if step % save_every == 0:
             filename = get_name(step)
