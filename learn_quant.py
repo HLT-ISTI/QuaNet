@@ -132,7 +132,7 @@ def create_batch_(yhat_pos, yhat_neg, batch_size=1000, sample_length=1000):
 
 quant_lstm_hidden_size = 32
 quant_lstm_layers = 1
-quant_lin_layers_sizes = [32, 16]
+quant_lin_layers_sizes = [16]
 
 quant_loss_function = torch.nn.MSELoss()
 
