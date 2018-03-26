@@ -112,7 +112,7 @@ def create_batch_(yhat_pos, yhat_neg, batch_size=1000, sample_length=1000):
         real_prevalences.append(sample_pos_count / sample_length)
 
         sample_yhat = np.concatenate((choices(yhat_pos, k=sample_pos_count), choices(yhat_neg, k=sample_neg_count)))
-        pos_neg_code = np.array([[1, 0], [0, 1]])
+        pos_neg_code = np.array([[1., 0.], [0., 1.]])
         sample_y = np.repeat(pos_neg_code, repeats=[sample_pos_count, sample_neg_count], axis=0)
 
         order = np.argsort(sample_yhat[:, 0])
