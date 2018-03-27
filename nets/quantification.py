@@ -33,7 +33,7 @@ class LSTMQuantificationNet(torch.nn.Module):
         lstm_input = x
         lstm_input = lstm_input.transpose(0, 1)
         rnn_output, rnn_hidden = self.quant_lstm(lstm_input, self.init_quant_hidden(x.size()[0]))
-        abstracted = rnn_output#rnn_hidden[0][-1]
+        abstracted = rnn_output[-1]# rnn_hidden[0][-1]
         for linear in self.set_lins:
             abstracted = F.relu(linear(abstracted))
         quant_output = F.softmax(self.quant_output(abstracted), dim=1)

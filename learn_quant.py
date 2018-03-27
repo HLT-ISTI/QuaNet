@@ -4,8 +4,10 @@ from keras.datasets import imdb
 from keras.preprocessing import sequence
 from time import time
 import torch.cuda
-
+#from inntt import *
 from nets.quantification import LSTMQuantificationNet
+
+interactive=True
 
 max_features = 5000
 max_len = 120
@@ -171,7 +173,7 @@ else:
 class_net.eval()
 val_yhat = list()
 test_yhat = list()
-batch_size = 100
+batch_size = 500
 print('creating val_yhat')
 for i in range(0, val_x.shape[0], batch_size):
     val_yhat.extend(
@@ -210,16 +212,23 @@ if use_cuda:
 print(quant_net)
 
 lr = 0.0001
-weight_decay = 0.0001
+weight_decay = 0.00001
 
 quant_optimizer = torch.optim.Adam(quant_net.parameters(), lr=lr, weight_decay=weight_decay)
 
 batch_size = 100
-sample_length = 50
+sample_length = 200
+
 
 print('init quantification')
 with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         open('quant_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
+
+    #if interactive:
+    #    innt = InteractiveNeuralTrainer()
+    #    innt.add_optim_param_adapt('ws', quant_optimizer, 'lr', inc_factor=10.)
+    #    innt.add_optim_param_adapt('da', quant_optimizer, 'weight_decay', inc_factor=2.)
+    #    innt.start()
     quant_loss_sum = 0
     t_init = time()
     val_yhat_pos = val_yhat[val_y == 1]
@@ -228,6 +237,7 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
     test_yhat_neg = test_yhat[test_y != 1]
     for step in range(1, quant_steps + 1):
 
+        sample_length = 10 + step//10
         batch_yhat, batch_y, batch_p = create_batch_(val_yhat_pos, val_yhat_neg, batch_size, sample_length)
 
         quant_optimizer.zero_grad()
