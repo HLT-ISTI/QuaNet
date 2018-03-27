@@ -9,8 +9,9 @@ class LSTMQuantificationNet(torch.nn.Module):
         self.quant_lstm_hidden_size = quant_lstm_hidden_size
         self.quant_lstm_layers = quant_lstm_layers
 
-        self.classout2hidden = torch.nn.Linear(classes, self.quant_lstm_hidden_size)
-        self.quant_lstm = torch.nn.LSTM(quant_lstm_hidden_size, quant_lstm_hidden_size, quant_lstm_layers)
+        #self.classout2hidden = torch.nn.Linear(classes, self.quant_lstm_hidden_size)
+        #self.quant_lstm = torch.nn.LSTM(quant_lstm_hidden_size, quant_lstm_hidden_size, quant_lstm_layers)
+        self.quant_lstm = torch.nn.LSTM(classes, quant_lstm_hidden_size, quant_lstm_layers)
         prev_size = self.quant_lstm_hidden_size
         self.set_lins = torch.nn.ModuleList()
         for lin_size in quant_lin_layers_sizes:
@@ -28,10 +29,11 @@ class LSTMQuantificationNet(torch.nn.Module):
             return (var_hidden, var_cell)
 
     def forward(self, x):
-        lstm_input = self.classout2hidden(x)
+        #lstm_input = self.classout2hidden(x)
+        lstm_input = x
         lstm_input = lstm_input.transpose(0, 1)
         rnn_output, rnn_hidden = self.quant_lstm(lstm_input, self.init_quant_hidden(x.size()[0]))
-        abstracted = rnn_hidden[0][-1]
+        abstracted = rnn_output#rnn_hidden[0][-1]
         for linear in self.set_lins:
             abstracted = F.relu(linear(abstracted))
         quant_output = F.softmax(self.quant_output(abstracted), dim=1)
