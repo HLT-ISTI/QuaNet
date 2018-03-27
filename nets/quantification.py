@@ -3,7 +3,7 @@ import torch.nn.functional as F
 
 
 class LSTMQuantificationNet(torch.nn.Module):
-    def __init__(self, classes, quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes):
+    def __init__(self, classes, quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes, bidirectional=True):
         super().__init__()
 
         self.quant_lstm_hidden_size = quant_lstm_hidden_size
@@ -11,8 +11,8 @@ class LSTMQuantificationNet(torch.nn.Module):
 
         #self.classout2hidden = torch.nn.Linear(classes, self.quant_lstm_hidden_size)
         #self.quant_lstm = torch.nn.LSTM(quant_lstm_hidden_size, quant_lstm_hidden_size, quant_lstm_layers)
-        self.quant_lstm = torch.nn.LSTM(classes, quant_lstm_hidden_size, quant_lstm_layers)
-        prev_size = self.quant_lstm_hidden_size
+        self.quant_lstm = torch.nn.LSTM(classes, quant_lstm_hidden_size, quant_lstm_layers, bidirectional=bidirectional)
+        prev_size = self.quant_lstm_hidden_size * (2 if bidirectional else 1)
         self.set_lins = torch.nn.ModuleList()
         for lin_size in quant_lin_layers_sizes:
             self.set_lins.append(torch.nn.Linear(prev_size, lin_size))

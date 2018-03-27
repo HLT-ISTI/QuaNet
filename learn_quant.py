@@ -288,8 +288,11 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
             net_prevs = np.array(net_prevs)
             anet_prevs = np.array(anet_prevs)
             def mae(prevs, method): return np.mean(np.abs(prevs-method))
-            print('Test Summary:\tccp={:.3f}\taccp={:.3f}\tnetp={:.3f}\tanetp={:.3f}'
+            def mse(prevs, method): return np.mean((prevs - method)**2.)
+            print('Average MAE:\tccp={:.3f}\taccp={:.3f}\tnetp={:.3f}\tanetp={:.3f}'
                   .format(mae(prevs, cc_prevs), mae(prevs, acc_prevs), mae(prevs, net_prevs), mae(prevs, anet_prevs)))
+            print('Average MSE:\tccp={:.3f}\taccp={:.3f}\tnetp={:.3f}\tanetp={:.3f}'
+                  .format(mse(prevs, cc_prevs), mse(prevs, acc_prevs), mse(prevs, net_prevs), mse(prevs, anet_prevs)))
 
         if step % save_every == 0:
             filename = get_name(step)
