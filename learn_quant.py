@@ -42,8 +42,8 @@ print('x_train shape:', train_x.shape)
 print('x_val shape:', val_x.shape)
 print('x_test shape:', test_x.shape)
 
-min_sample_length = 1000
-max_sample_length = 1000
+#min_sample_length = 1000
+#max_sample_length = 1000
 
 use_cuda = True
 
@@ -226,7 +226,7 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
     val_yhat_neg = val_yhat[val_y != 1]
     for step in range(1, quant_steps + 1):
 
-        batch_yhat, batch_y, batch_p = create_batch_(val_yhat_pos, val_yhat_neg, batch_size, sample_length)
+        batch_yhat, batch_y, batch_p = create_batch_(val_yhat_pos, val_yhat_neg, batch_size=1000, sample_length=50)
 
         quant_optimizer.zero_grad()
 
