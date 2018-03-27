@@ -214,8 +214,8 @@ weight_decay = 0.0001
 
 quant_optimizer = torch.optim.Adam(quant_net.parameters(), lr=lr, weight_decay=weight_decay)
 
-batch_size = 1000
-sample_length = 1000
+batch_size = 100
+sample_length = 50
 
 print('init quantification')
 with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
@@ -224,9 +224,11 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
     t_init = time()
     val_yhat_pos = val_yhat[val_y == 1]
     val_yhat_neg = val_yhat[val_y != 1]
+    test_yhat_pos = test_yhat[test_y == 1]
+    test_yhat_neg = test_yhat[test_y != 1]
     for step in range(1, quant_steps + 1):
 
-        batch_yhat, batch_y, batch_p = create_batch_(val_yhat_pos, val_yhat_neg, batch_size=1000, sample_length=50)
+        batch_yhat, batch_y, batch_p = create_batch_(val_yhat_pos, val_yhat_neg, batch_size, sample_length)
 
         quant_optimizer.zero_grad()
 
@@ -249,7 +251,7 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         if step % test_every == 0:
             quant_net.eval()
 
-            test_batch_yhat, test_batch_y, test_batch_p = create_batch(test_yhat, test_y, test_samples,
+            test_batch_yhat, test_batch_y, test_batch_p = create_batch_(test_yhat_pos, test_yhat_neg, test_samples,
                                                                        sample_length)
             test_batch_phat = quant_net.forward(test_batch_yhat)
 
@@ -262,7 +264,7 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
                 else:
                     acc_prev = -1.
                     anet_prev = -1.
-                print('step {} p={} ccp={} accp={} netp={} anetp={}'
+                print('step {}\tp={:.3f}\tccp={:.3f}\taccp={:.3f}\tnetp={:.3f}\tanetp={:.3f}'
                       .format(step, test_batch_p[i,0].data[0], cc_prev, acc_prev, net_prev, anet_prev))
 
         if step % save_every == 0:
