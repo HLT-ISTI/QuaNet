@@ -265,6 +265,7 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
                                                                        sample_length)
             test_batch_phat = quant_net.forward(test_batch_yhat)
 
+            prevs, cc_prevs, net_prevs, acc_prevs, anet_prevs = [],[],[],[],[]
             for i in range(test_samples):
                 net_prev = float(test_batch_phat[i, 0])
                 cc_prev = classify_and_count(np.asarray(test_batch_yhat[i, :, :].data))
@@ -274,8 +275,21 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
                 else:
                     acc_prev = -1.
                     anet_prev = -1.
+                prevs.append(test_batch_p[i,0].data[0])
+                net_prevs.append(net_prev)
+                cc_prevs.append(cc_prev)
+                acc_prevs.append(acc_prev)
+                anet_prevs.append(anet_prev)
                 print('step {}\tp={:.3f}\tccp={:.3f}\taccp={:.3f}\tnetp={:.3f}\tanetp={:.3f}'
                       .format(step, test_batch_p[i,0].data[0], cc_prev, acc_prev, net_prev, anet_prev))
+            prevs = np.array(prevs)
+            cc_prevs = np.array(cc_prevs)
+            acc_prevs = np.array(acc_prevs)
+            net_prevs = np.array(net_prevs)
+            anet_prevs = np.array(anet_prevs)
+            def mae(prevs, method): return np.mean(np.abs(prevs-method))
+            print('Test Summary:\tccp={:.3f}\taccp={:.3f}\tnetp={:.3f}\tanetp={:.3f}'
+                  .format(mae(prevs, cc_prevs), mae(prevs, acc_prevs), mae(prevs, net_prevs), mae(prevs, anet_prevs)))
 
         if step % save_every == 0:
             filename = get_name(step)
