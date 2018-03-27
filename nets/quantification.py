@@ -11,6 +11,7 @@ class LSTMQuantificationNet(torch.nn.Module):
 
         #self.classout2hidden = torch.nn.Linear(classes, self.quant_lstm_hidden_size)
         #self.quant_lstm = torch.nn.LSTM(quant_lstm_hidden_size, quant_lstm_hidden_size, quant_lstm_layers)
+        self.bidirectional=bidirectional
         self.quant_lstm = torch.nn.LSTM(classes, quant_lstm_hidden_size, quant_lstm_layers, bidirectional=bidirectional)
         prev_size = self.quant_lstm_hidden_size * (2 if bidirectional else 1)
         self.set_lins = torch.nn.ModuleList()
@@ -20,9 +21,10 @@ class LSTMQuantificationNet(torch.nn.Module):
         self.quant_output = torch.nn.Linear(prev_size, classes)
 
     def init_quant_hidden(self, batch_size):
+        directions = 2 if self.bidirectional else 1
         var_hidden = torch.autograd.Variable(
-            torch.zeros(self.quant_lstm_layers, batch_size, self.quant_lstm_hidden_size))
-        var_cell = torch.autograd.Variable(torch.zeros(self.quant_lstm_layers, batch_size, self.quant_lstm_hidden_size))
+            torch.zeros(self.quant_lstm_layers*directions, batch_size, self.quant_lstm_hidden_size))
+        var_cell = torch.autograd.Variable(torch.zeros(self.quant_lstm_layers*directions, batch_size, self.quant_lstm_hidden_size))
         if next(self.quant_lstm.parameters()).is_cuda:
             return (var_hidden.cuda(), var_cell.cuda())
         else:
