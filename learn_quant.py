@@ -289,9 +289,9 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
             anet_prevs = np.array(anet_prevs)
             def mae(prevs, method): return np.mean(np.abs(prevs-method))
             def mse(prevs, method): return np.mean((prevs - method)**2.)
-            print('Average MAE:\tccp={:.3f}\taccp={:.3f}\tnetp={:.3f}\tanetp={:.3f}'
+            print('Average MAE:\tccp={:.4f}\taccp={:.4f}\tnetp={:.4f}\tanetp={:.4f}'
                   .format(mae(prevs, cc_prevs), mae(prevs, acc_prevs), mae(prevs, net_prevs), mae(prevs, anet_prevs)))
-            print('Average MSE:\tccp={:.3f}\taccp={:.3f}\tnetp={:.3f}\tanetp={:.3f}'
+            print('Average MSE:\tccp={:.4f}\taccp={:.4f}\tnetp={:.4f}\tanetp={:.4f}'
                   .format(mse(prevs, cc_prevs), mse(prevs, acc_prevs), mse(prevs, net_prevs), mse(prevs, anet_prevs)))
 
         if step % save_every == 0:
