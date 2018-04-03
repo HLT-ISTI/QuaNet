@@ -1,10 +1,13 @@
+from time import time
+
 import numpy as np
 import torch
+import torch.cuda
 from keras.datasets import imdb
 from keras.preprocessing import sequence
 from time import time
 import torch.cuda
-from inntt import *
+#from inntt import *
 from nets.quantification import LSTMQuantificationNet
 from plot_correction import plot_corr, plot_loss, plot_bins
 
@@ -45,8 +48,8 @@ print('x_train shape:', train_x.shape)
 print('x_val shape:', val_x.shape)
 print('x_test shape:', test_x.shape)
 
-#min_sample_length = 1000
-#max_sample_length = 1000
+# min_sample_length = 1000
+# max_sample_length = 1000
 
 use_cuda = True
 
@@ -99,12 +102,14 @@ def create_batch(yhat, y, batch_size=1000, sample_length=1000):
 
     return batch_yhat_var, batch_y_var, batch_p_var
 
-def create_batch_(yhat_pos, yhat_neg, batch_size=1000, sample_length=1000):
+
+def create_batch_(yhat_pos, yhat_neg, val_tpr, val_fpr, batch_size=1000, sample_length=1000):
     batch_prevalences = np.random.random(batch_size)
 
     batch_y = list()
     batch_yhat = list()
     real_prevalences = list()
+    stats = list()
     for prevalence in batch_prevalences:
         sample_pos_count = int(sample_length * prevalence)
         if sample_pos_count == sample_length:
@@ -122,20 +127,34 @@ def create_batch_(yhat_pos, yhat_neg, batch_size=1000, sample_length=1000):
         sample_yhat = sample_yhat[order]
         sample_y = sample_y[order]
 
+        cc = sum(sample_yhat[:, 0] > 0.5) / len(sample_yhat)
+        if val_tpr == val_fpr:
+            acc = cc
+        else:
+            acc = (cc - val_fpr) / (val_tpr - val_fpr)
+
         batch_yhat.append(sample_yhat)
         batch_y.append(sample_y)
+        stats.append([[cc, 1 - cc], [acc, 1 - acc], [val_tpr, 1 - val_tpr], [val_fpr, 1 - val_fpr]])
+
+    stats_var = variable(
+        torch.FloatTensor(stats).view(-1, 4,
+                                      2))
 
     batch_yhat_var = variable(torch.FloatTensor(batch_yhat).view(-1, sample_length, 2))
     batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_length, 2))
     real_prevalences = np.asarray(real_prevalences)
     batch_p_var = variable(torch.FloatTensor(np.vstack([real_prevalences, 1 - real_prevalences]).transpose()))
 
-    return batch_yhat_var, batch_y_var, batch_p_var
+    return batch_yhat_var, batch_y_var, batch_p_var, stats_var
 
 
 quant_lstm_hidden_size = 64
 quant_lstm_layers = 1
 quant_lin_layers_sizes = [32,16]
+
+stats_in_lin_layers = True
+stats_in_sequence = True
 
 quant_loss_function = torch.nn.MSELoss()
 
@@ -159,16 +178,17 @@ def tpr(yhat, y):
 def fpr(yhat, y):
     return ((y * 2 + (yhat[:, 0] > 0.5)) == 1).sum() / (y == 0).sum()
 
+
 def adjusted_quantification(estim, tpr, fpr):
     if (val_tpr - val_fpr) == 0:
         return -1
     adjusted = (estim - fpr) / (tpr - fpr)
-    return max(min(adjusted,1.), 0.)
+    return max(min(adjusted, 1.), 0.)
 
 
 def mae(prevs, method):
     assert len(prevs) == len(method), 'wrong sizes'
-    diff = np.array([prevs[i]-method[i] for i in range(len(prevs))])
+    diff = np.array([prevs[i] - method[i] for i in range(len(prevs))])
     return np.mean(np.abs(diff))
 
 
@@ -186,8 +206,6 @@ if use_cuda:
     class_net = class_net.cuda()
 else:
     class_net = class_net.cpu()
-
-
 
 class_net.eval()
 val_yhat = list()
@@ -223,7 +241,7 @@ def get_name(step):
     return filename + '.pt'
 
 
-quant_net = LSTMQuantificationNet(classes, quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes)
+quant_net = LSTMQuantificationNet(classes, quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes)#, stats_in_lin_layers=True)
 
 if use_cuda:
     quant_net = quant_net.cuda()
@@ -237,16 +255,17 @@ quant_optimizer = torch.optim.Adam(quant_net.parameters(), lr=lr, weight_decay=w
 
 batch_size = 100
 
-
 print('init quantification')
 with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         open('quant_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
 
-    if interactive:
-        innt = InteractiveNeuralTrainer()
-        innt.add_optim_param_adapt('ws', quant_optimizer, 'lr', inc_factor=10.)
-        innt.add_optim_param_adapt('da', quant_optimizer, 'weight_decay', inc_factor=2.)
-        innt.start()
+
+    # if interactive:
+    #    innt = InteractiveNeuralTrainer()
+    #    innt.add_optim_param_adapt('ws', quant_optimizer, 'lr', inc_factor=10.)
+    #    innt.add_optim_param_adapt('da', quant_optimizer, 'weight_decay', inc_factor=2.)
+    #    innt.start()
+
     quant_loss_sum = 0
     t_init = time()
     val_yhat_pos = val_yhat[val_y == 1]
@@ -256,14 +275,20 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
     losses=[]
     for step in range(1, quant_steps + 1):
 
-        sample_length = 10 + step//10
-        batch_yhat, batch_y, batch_p = create_batch_(val_yhat_pos, val_yhat_neg, batch_size, sample_length)
+        sample_length = 10 + step // 10
+
+        batch_yhat, batch_y, batch_p, stats = create_batch_(val_yhat_pos, val_yhat_neg, val_tpr, val_fpr, batch_size,
+                                                            sample_length)
+
+        # pcc_prev = probabilistic_classify_and_count(np.asarray(batch_yhat[i, :, :].data))
+        # apcc_prev = adjusted_quantification(pcc_prev, val_tpr, val_fpr)
+
 
         quant_optimizer.zero_grad()
 
         quant_net.train()
 
-        batch_phat = quant_net.forward(batch_yhat)
+        batch_phat = quant_net.forward(batch_yhat)#, [pcc_prev, apcc_prev])
         quant_loss = quant_loss_function(batch_phat, batch_p)
 
         quant_loss.backward()
@@ -275,18 +300,19 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         losses.append(loss)
 
         if step % status_every == 0:
-            print('step {}\tloss {:.5}\tv {:.2f}'.format(step,quant_loss_sum / status_every, status_every/(time()-t_init)))
+            print('step {}\tloss {:.5}\tv {:.2f}'.format(step, quant_loss_sum / status_every,
+                                                         status_every / (time() - t_init)))
             quant_loss_sum = 0
             t_init = time()
 
         if step % test_every == 0:
             quant_net.eval()
 
-            test_batch_yhat, test_batch_y, test_batch_p = create_batch_(test_yhat_pos, test_yhat_neg, test_samples,
-                                                                       sample_length)
-            test_batch_phat = quant_net.forward(test_batch_yhat)
+            test_batch_yhat, test_batch_y, test_batch_p, stats = create_batch_(test_yhat_pos, test_yhat_neg, val_tpr,
+                                                                               val_fpr, test_samples, sample_length)
+            test_batch_phat = quant_net.forward(test_batch_yhat, stats)
 
-            prevs, net_prevs, cc_prevs, pcc_prevs, acc_prevs, apcc_prevs, anet_prevs = [],[],[],[],[],[],[]
+            prevs, net_prevs, cc_prevs, pcc_prevs, acc_prevs, apcc_prevs, anet_prevs = [], [], [], [], [], [], []
             for i in range(test_samples):
                 net_prev = float(test_batch_phat[i, 0])
                 cc_prev = classify_and_count(np.asarray(test_batch_yhat[i, :, :].data))
@@ -296,7 +322,7 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
                 acc_prev = adjusted_quantification(cc_prev, val_tpr, val_fpr)
                 apcc_prev = adjusted_quantification(pcc_prev, val_tpr, val_fpr)
 
-                prevs.append(test_batch_p[i,0].data[0])
+                prevs.append(test_batch_p[i, 0].data[0])
 
                 net_prevs.append(net_prev)
                 cc_prevs.append(cc_prev)
@@ -306,7 +332,8 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
                 apcc_prevs.append(apcc_prev)
 
                 print('step {}\tp={:.3f}\tcc={:.3f}\tacc={:.3f}\tpcc={:.3f}\tapcc={:.3f}\tnet={:.3f}\tanet={:.3f}'
-                      .format(step, test_batch_p[i,0].data[0], cc_prev, acc_prev, pcc_prev, apcc_prev, net_prev, anet_prev))
+                      .format(step, test_batch_p[i, 0].data[0], cc_prev, acc_prev, pcc_prev, apcc_prev, net_prev,
+                              anet_prev))
 
             print('Average MAE:\tcc={:.4f}\tacc={:.4f}\tpcc={:.4f}\tapcc={:.4f}\tnet={:.4f}\tanet={:.4f}'
                   .format(mae(prevs, cc_prevs), mae(prevs, acc_prevs), mae(prevs, pcc_prevs), mae(prevs, apcc_prevs),
