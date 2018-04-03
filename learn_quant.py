@@ -4,10 +4,11 @@ from keras.datasets import imdb
 from keras.preprocessing import sequence
 from time import time
 import torch.cuda
-#from inntt import *
+from inntt import *
 from nets.quantification import LSTMQuantificationNet
+from plot_correction import plot_corr, plot_loss, plot_bins
 
-interactive=True
+interactive=False
 
 max_features = 5000
 max_len = 120
@@ -132,9 +133,9 @@ def create_batch_(yhat_pos, yhat_neg, batch_size=1000, sample_length=1000):
     return batch_yhat_var, batch_y_var, batch_p_var
 
 
-quant_lstm_hidden_size = 32
+quant_lstm_hidden_size = 64
 quant_lstm_layers = 1
-quant_lin_layers_sizes = [16]
+quant_lin_layers_sizes = [32,16]
 
 quant_loss_function = torch.nn.MSELoss()
 
@@ -211,10 +212,10 @@ val_fpr = fpr(val_yhat, val_y)
 
 quant_steps = 10000
 status_every = 10
-test_every = 100
+test_every = 200
 save_every = 1000
 
-test_samples = 100
+test_samples = 1000
 
 
 def get_name(step):
@@ -241,17 +242,18 @@ print('init quantification')
 with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         open('quant_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
 
-    #if interactive:
-    #    innt = InteractiveNeuralTrainer()
-    #    innt.add_optim_param_adapt('ws', quant_optimizer, 'lr', inc_factor=10.)
-    #    innt.add_optim_param_adapt('da', quant_optimizer, 'weight_decay', inc_factor=2.)
-    #    innt.start()
+    if interactive:
+        innt = InteractiveNeuralTrainer()
+        innt.add_optim_param_adapt('ws', quant_optimizer, 'lr', inc_factor=10.)
+        innt.add_optim_param_adapt('da', quant_optimizer, 'weight_decay', inc_factor=2.)
+        innt.start()
     quant_loss_sum = 0
     t_init = time()
     val_yhat_pos = val_yhat[val_y == 1]
     val_yhat_neg = val_yhat[val_y != 1]
     test_yhat_pos = test_yhat[test_y == 1]
     test_yhat_neg = test_yhat[test_y != 1]
+    losses=[]
     for step in range(1, quant_steps + 1):
 
         sample_length = 10 + step//10
@@ -268,7 +270,9 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
 
         quant_optimizer.step()
 
-        quant_loss_sum += quant_loss.data[0]
+        loss = quant_loss.data[0]
+        quant_loss_sum += loss
+        losses.append(loss)
 
         if step % status_every == 0:
             print('step {}\tloss {:.5}\tv {:.2f}'.format(step,quant_loss_sum / status_every, status_every/(time()-t_init)))
@@ -310,6 +314,13 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
             print('Average MSE:\tcc={:.4f}\tacc={:.4f}\tpcc={:.4f}\tapcc={:.4f}\tnet={:.4f}\tanet={:.4f}'
                   .format(mse(prevs, cc_prevs), mse(prevs, acc_prevs), mse(prevs, pcc_prevs), mse(prevs, apcc_prevs),
                           mse(prevs, net_prevs), mse(prevs, anet_prevs)))
+
+            methods = [cc_prevs, acc_prevs, pcc_prevs, apcc_prevs, net_prevs]
+            labels = ['cc', 'acc', 'pcc', 'apcc', 'net']
+            plot_corr(prevs, methods, labels, savedir='../plots', savename='corr.png')#'step_' + str(step) + '.png')
+            plot_bins(prevs, [acc_prevs, apcc_prevs, net_prevs], ['acc', 'apcc', 'net'], mae, bins=10, savedir='../plots', savename='bins_' + mae.__name__ + '.png')
+            plot_bins(prevs, [acc_prevs, apcc_prevs, net_prevs], ['acc', 'apcc', 'net'], mse, bins=10, savedir='../plots', savename='bins_' + mse.__name__ + '.png')
+            plot_loss(range(step), losses, savedir='../plots', savename='loss.png')
 
         if step % save_every == 0:
             filename = get_name(step)
