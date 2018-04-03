@@ -7,7 +7,7 @@ from keras.datasets import imdb
 from keras.preprocessing import sequence
 from time import time
 import torch.cuda
-#from inntt import *
+from inntt import *
 from nets.quantification import LSTMQuantificationNet
 from plot_correction import plot_corr, plot_loss, plot_bins
 
@@ -16,6 +16,7 @@ interactive=False
 max_features = 5000
 max_len = 120
 classes = 2
+MAX_SAMPLE_LENGTH = 500
 
 print('Loading data...')
 (train_x, train_y), (test_x, test_y) = imdb.load_data(num_words=max_features)
@@ -63,48 +64,9 @@ def variable(tensor):
     return var.cuda() if use_cuda else var
 
 
-def create_batch(yhat, y, batch_size=1000, sample_length=1000):
-    batch_prevalences = np.random.random(batch_size)
-
-    yhat_pos = yhat[y == 1]
-    yhat_neg = yhat[y != 1]
-
-    batch_y = list()
-    batch_yhat = list()
-    real_prevalences = list()
-    for prevalence in batch_prevalences:
-        sample_pos_count = int(sample_length * prevalence)
-        if sample_pos_count == sample_length:
-            sample_pos_count = sample_length - 1
-        if sample_pos_count == 0:
-            sample_pos_count = 1
-        sample_neg_count = sample_length - sample_pos_count
-        real_prevalences.append(sample_pos_count / sample_length)
-
-        sample_yhat = np.concatenate((choices(yhat_pos, k=sample_pos_count), choices(yhat_neg, k=sample_neg_count)))
-        sample_y = np.concatenate((np.asarray([[1, 0]] * sample_pos_count, dtype=np.float),
-                                   np.asarray([[0, 1]] * sample_neg_count, dtype=np.float)))
-
-        order = np.argsort(sample_yhat[:, 0])
-        sample_yhat = sample_yhat[order]
-        sample_y = sample_y[order]
-
-        # paired = list(zip(sample_yhat, sample_y))
-        # paired = sorted(paired, key=lambda x: x[0])
-        # sample_yhat, sample_y = zip(*paired)
-        batch_yhat.append(sample_yhat)
-        batch_y.append(sample_y)
-
-    batch_yhat_var = variable(torch.FloatTensor(batch_yhat).view(-1, sample_length, 2))
-    batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_length, 2))
-    real_prevalences = np.asarray(real_prevalences)
-    batch_p_var = variable(torch.FloatTensor(np.vstack([real_prevalences, 1 - real_prevalences]).transpose()))
-
-    return batch_yhat_var, batch_y_var, batch_p_var
-
-
 def create_batch_(yhat_pos, yhat_neg, val_tpr, val_fpr, batch_size=1000, sample_length=1000):
-    batch_prevalences = np.random.random(batch_size)
+    batch_prevalences = np.random.random(batch_size)*0.8+0.1
+    #batch_prevalences = np.random.random(batch_size)
 
     batch_y = list()
     batch_yhat = list()
@@ -127,19 +89,16 @@ def create_batch_(yhat_pos, yhat_neg, val_tpr, val_fpr, batch_size=1000, sample_
         sample_yhat = sample_yhat[order]
         sample_y = sample_y[order]
 
-        cc = sum(sample_yhat[:, 0] > 0.5) / len(sample_yhat)
-        if val_tpr == val_fpr:
-            acc = cc
-        else:
-            acc = (cc - val_fpr) / (val_tpr - val_fpr)
+        cc = classify_and_count(sample_yhat)
+        acc = adjusted_quantification(cc,val_tpr,val_fpr, clip=False)
+        pcc = probabilistic_classify_and_count(sample_yhat)
+        apcc = adjusted_quantification(pcc,val_tpr,val_fpr, clip=False)
 
         batch_yhat.append(sample_yhat)
         batch_y.append(sample_y)
-        stats.append([[cc, 1 - cc], [acc, 1 - acc], [val_tpr, 1 - val_tpr], [val_fpr, 1 - val_fpr]])
+        stats.append([[cc, 1 - cc], [acc, 1 - acc], [pcc, 1-pcc], [apcc, 1-apcc], [val_tpr, 1 - val_tpr], [val_fpr, 1 - val_fpr]])
 
-    stats_var = variable(
-        torch.FloatTensor(stats).view(-1, 4,
-                                      2))
+    stats_var = variable(torch.FloatTensor(stats).view(-1, 6, 2))
 
     batch_yhat_var = variable(torch.FloatTensor(batch_yhat).view(-1, sample_length, 2))
     batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_length, 2))
@@ -148,10 +107,54 @@ def create_batch_(yhat_pos, yhat_neg, val_tpr, val_fpr, batch_size=1000, sample_
 
     return batch_yhat_var, batch_y_var, batch_p_var, stats_var
 
+def create_fulltest_batch(yhat, y, val_tpr, val_fpr, batch_size=1000, sample_length=MAX_SAMPLE_LENGTH):
+    ntest = yhat.shape[0]
+
+    permutation = np.random.permutation(ntest)
+    nsplits = ntest // sample_length
+
+
+    batch_y, batch_yhat, real_prevalences, stats = [], [], [], []
+    batched = 0
+    for split in range(nsplits):
+        indices = permutation[split*sample_length:(split+1)*sample_length]
+
+        sample_yhat = yhat[indices]
+        sample_y = y[indices]
+
+        order = np.argsort(sample_yhat[:, 0])
+        sample_yhat = sample_yhat[order]
+        sample_y = sample_y[order]
+
+        cc = classify_and_count(sample_yhat)
+        acc = adjusted_quantification(cc,val_tpr,val_fpr, clip=False)
+        pcc = probabilistic_classify_and_count(sample_yhat)
+        apcc = adjusted_quantification(pcc,val_tpr,val_fpr, clip=False)
+
+        batch_yhat.append(sample_yhat)
+        batch_y.append(np.vstack((sample_y, 1. - sample_y)).T)
+        stats.append([[cc, 1 - cc], [acc, 1 - acc], [pcc, 1-pcc], [apcc, 1-apcc], [val_tpr, 1 - val_tpr], [val_fpr, 1 - val_fpr]])
+        real_prevalences.append(np.mean(sample_y))
+
+        batched+=1
+        if batched == batch_size or split == nsplits-1:
+            stats_var = variable(torch.FloatTensor(stats).view(-1, 6, 2))
+            batch_yhat_var = variable(torch.FloatTensor(batch_yhat).view(-1, sample_length, 2))
+            batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_length, 2))
+            real_prevalences = np.asarray(real_prevalences)
+            batch_p_var = variable(torch.FloatTensor(np.vstack([real_prevalences, 1 - real_prevalences]).transpose()))
+
+            yield batch_yhat_var, batch_y_var, batch_p_var, stats_var
+
+            batch_y, batch_yhat, real_prevalences, stats = [], [], [], []
+            batched = 0
+
+    raise StopIteration()
+
 
 quant_lstm_hidden_size = 64
 quant_lstm_layers = 1
-quant_lin_layers_sizes = [32,16]
+quant_lin_layers_sizes = [1024]#[128,64,32]
 
 stats_in_lin_layers = True
 stats_in_sequence = True
@@ -179,11 +182,13 @@ def fpr(yhat, y):
     return ((y * 2 + (yhat[:, 0] > 0.5)) == 1).sum() / (y == 0).sum()
 
 
-def adjusted_quantification(estim, tpr, fpr):
+def adjusted_quantification(estim, tpr, fpr, clip=True):
     if (val_tpr - val_fpr) == 0:
         return -1
     adjusted = (estim - fpr) / (tpr - fpr)
-    return max(min(adjusted, 1.), 0.)
+    if clip:
+        adjusted = max(min(adjusted, 1.), 0.)
+    return adjusted
 
 
 def mae(prevs, method):
@@ -241,7 +246,8 @@ def get_name(step):
     return filename + '.pt'
 
 
-quant_net = LSTMQuantificationNet(classes, quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes)#, stats_in_lin_layers=True)
+quant_net = LSTMQuantificationNet(classes, quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes,
+                                  stats_in_lin_layers=True, drop_p=0.5)
 
 if use_cuda:
     quant_net = quant_net.cuda()
@@ -255,16 +261,17 @@ quant_optimizer = torch.optim.Adam(quant_net.parameters(), lr=lr, weight_decay=w
 
 batch_size = 100
 
+
 print('init quantification')
 with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         open('quant_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
 
 
-    # if interactive:
-    #    innt = InteractiveNeuralTrainer()
-    #    innt.add_optim_param_adapt('ws', quant_optimizer, 'lr', inc_factor=10.)
-    #    innt.add_optim_param_adapt('da', quant_optimizer, 'weight_decay', inc_factor=2.)
-    #    innt.start()
+    if interactive:
+       innt = InteractiveNeuralTrainer()
+       innt.add_optim_param_adapt('ws', quant_optimizer, 'lr', inc_factor=10.)
+       innt.add_optim_param_adapt('da', quant_optimizer, 'weight_decay', inc_factor=2.)
+       innt.start()
 
     quant_loss_sum = 0
     t_init = time()
@@ -275,20 +282,16 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
     losses=[]
     for step in range(1, quant_steps + 1):
 
-        sample_length = 10 + step // 10
+        sample_length = min(10 + step // 10, MAX_SAMPLE_LENGTH)
 
         batch_yhat, batch_y, batch_p, stats = create_batch_(val_yhat_pos, val_yhat_neg, val_tpr, val_fpr, batch_size,
                                                             sample_length)
-
-        # pcc_prev = probabilistic_classify_and_count(np.asarray(batch_yhat[i, :, :].data))
-        # apcc_prev = adjusted_quantification(pcc_prev, val_tpr, val_fpr)
-
 
         quant_optimizer.zero_grad()
 
         quant_net.train()
 
-        batch_phat = quant_net.forward(batch_yhat)#, [pcc_prev, apcc_prev])
+        batch_phat = quant_net.forward(batch_yhat, stats)
         quant_loss = quant_loss_function(batch_phat, batch_p)
 
         quant_loss.backward()
@@ -335,19 +338,37 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
                       .format(step, test_batch_p[i, 0].data[0], cc_prev, acc_prev, pcc_prev, apcc_prev, net_prev,
                               anet_prev))
 
-            print('Average MAE:\tcc={:.4f}\tacc={:.4f}\tpcc={:.4f}\tapcc={:.4f}\tnet={:.4f}\tanet={:.4f}'
+            print('Average MAE:\tcc={:.5f}\tacc={:.5f}\tpcc={:.5f}\tapcc={:.5f}\tnet={:.5f}\tanet={:.5f}'
                   .format(mae(prevs, cc_prevs), mae(prevs, acc_prevs), mae(prevs, pcc_prevs), mae(prevs, apcc_prevs),
                           mae(prevs, net_prevs), mae(prevs, anet_prevs)))
-            print('Average MSE:\tcc={:.4f}\tacc={:.4f}\tpcc={:.4f}\tapcc={:.4f}\tnet={:.4f}\tanet={:.4f}'
+            print('Average MSE:\tcc={:.5f}\tacc={:.5f}\tpcc={:.5f}\tapcc={:.5f}\tnet={:.5f}\tanet={:.5f}'
                   .format(mse(prevs, cc_prevs), mse(prevs, acc_prevs), mse(prevs, pcc_prevs), mse(prevs, apcc_prevs),
                           mse(prevs, net_prevs), mse(prevs, anet_prevs)))
 
+            #plots
             methods = [cc_prevs, acc_prevs, pcc_prevs, apcc_prevs, net_prevs]
             labels = ['cc', 'acc', 'pcc', 'apcc', 'net']
             plot_corr(prevs, methods, labels, savedir='../plots', savename='corr.png')#'step_' + str(step) + '.png')
             plot_bins(prevs, [acc_prevs, apcc_prevs, net_prevs], ['acc', 'apcc', 'net'], mae, bins=10, savedir='../plots', savename='bins_' + mae.__name__ + '.png')
             plot_bins(prevs, [acc_prevs, apcc_prevs, net_prevs], ['acc', 'apcc', 'net'], mse, bins=10, savedir='../plots', savename='bins_' + mse.__name__ + '.png')
             plot_loss(range(step), losses, savedir='../plots', savename='loss.png')
+
+            print('full test')
+            tested = 0
+            p_ave = []
+            true_prev = np.mean(test_y)
+            cc = classify_and_count(test_yhat)
+            acc = adjusted_quantification(cc, val_tpr, val_fpr)
+            pcc = probabilistic_classify_and_count(test_yhat)
+            apcc = adjusted_quantification(pcc, val_tpr, val_fpr)
+            for test_batch_yhat, test_batch_y, test_batch_p, stats in create_fulltest_batch(test_yhat, test_y, val_tpr, val_fpr, batch_size=batch_size, sample_length=sample_length):
+                test_batch_phat = quant_net.forward(test_batch_yhat, stats)
+                p_ave.append(np.mean(test_batch_phat[:, 0].data.cpu().numpy()))
+                tested += (test_batch_yhat.shape[0]*test_batch_yhat.shape[1])
+                print('\rcomplete {}/{}, cc={:.4f} acc={:.4f} pcc={:.4f} apcc={:.4f} net={:.4f} true_prev={:.4f}'
+                      .format(tested, test_yhat.shape[0], cc, acc, pcc, apcc, np.mean(p_ave), true_prev), end='')
+            print()
+
 
         if step % save_every == 0:
             filename = get_name(step)
