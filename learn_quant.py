@@ -158,8 +158,26 @@ def tpr(yhat, y):
 def fpr(yhat, y):
     return ((y * 2 + (yhat[:, 0] > 0.5)) == 1).sum() / (y == 0).sum()
 
+def adjusted_quantification(estim, tpr, fpr):
+    if (val_tpr - val_fpr) == 0:
+        return -1
+    adjusted = (estim - fpr) / (tpr - fpr)
+    return max(min(adjusted,1.), 0.)
 
-class_steps = 3000
+
+def mae(prevs, method):
+    assert len(prevs) == len(method), 'wrong sizes'
+    diff = np.array([prevs[i]-method[i] for i in range(len(prevs))])
+    return np.mean(np.abs(diff))
+
+
+def mse(prevs, method):
+    assert len(prevs) == len(method), 'wrong sizes'
+    diff = np.array([prevs[i] - method[i] for i in range(len(prevs))])
+    return np.mean(diff ** 2.)
+
+
+class_steps = 20000
 with open('class_net_' + str(class_steps) + '.pt', mode='br') as modelfile:
     class_net = torch.load(modelfile)
 
@@ -217,7 +235,6 @@ weight_decay = 0.00001
 quant_optimizer = torch.optim.Adam(quant_net.parameters(), lr=lr, weight_decay=weight_decay)
 
 batch_size = 100
-sample_length = 200
 
 
 print('init quantification')
@@ -265,34 +282,34 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
                                                                        sample_length)
             test_batch_phat = quant_net.forward(test_batch_yhat)
 
-            prevs, cc_prevs, net_prevs, acc_prevs, anet_prevs = [],[],[],[],[]
+            prevs, net_prevs, cc_prevs, pcc_prevs, acc_prevs, apcc_prevs, anet_prevs = [],[],[],[],[],[],[]
             for i in range(test_samples):
                 net_prev = float(test_batch_phat[i, 0])
                 cc_prev = classify_and_count(np.asarray(test_batch_yhat[i, :, :].data))
-                if val_tpr - val_fpr != 0:
-                    acc_prev = (cc_prev - val_fpr) / (val_tpr - val_fpr)
-                    anet_prev = (net_prev - val_fpr) / (val_tpr - val_fpr)
-                else:
-                    acc_prev = -1.
-                    anet_prev = -1.
+                pcc_prev = probabilistic_classify_and_count(np.asarray(test_batch_yhat[i, :, :].data))
+
+                anet_prev = adjusted_quantification(net_prev, val_tpr, val_fpr)
+                acc_prev = adjusted_quantification(cc_prev, val_tpr, val_fpr)
+                apcc_prev = adjusted_quantification(pcc_prev, val_tpr, val_fpr)
+
                 prevs.append(test_batch_p[i,0].data[0])
+
                 net_prevs.append(net_prev)
                 cc_prevs.append(cc_prev)
-                acc_prevs.append(acc_prev)
+                pcc_prevs.append(pcc_prev)
                 anet_prevs.append(anet_prev)
-                print('step {}\tp={:.3f}\tccp={:.3f}\taccp={:.3f}\tnetp={:.3f}\tanetp={:.3f}'
-                      .format(step, test_batch_p[i,0].data[0], cc_prev, acc_prev, net_prev, anet_prev))
-            prevs = np.array(prevs)
-            cc_prevs = np.array(cc_prevs)
-            acc_prevs = np.array(acc_prevs)
-            net_prevs = np.array(net_prevs)
-            anet_prevs = np.array(anet_prevs)
-            def mae(prevs, method): return np.mean(np.abs(prevs-method))
-            def mse(prevs, method): return np.mean((prevs - method)**2.)
-            print('Average MAE:\tccp={:.4f}\taccp={:.4f}\tnetp={:.4f}\tanetp={:.4f}'
-                  .format(mae(prevs, cc_prevs), mae(prevs, acc_prevs), mae(prevs, net_prevs), mae(prevs, anet_prevs)))
-            print('Average MSE:\tccp={:.4f}\taccp={:.4f}\tnetp={:.4f}\tanetp={:.4f}'
-                  .format(mse(prevs, cc_prevs), mse(prevs, acc_prevs), mse(prevs, net_prevs), mse(prevs, anet_prevs)))
+                acc_prevs.append(acc_prev)
+                apcc_prevs.append(apcc_prev)
+
+                print('step {}\tp={:.3f}\tcc={:.3f}\tacc={:.3f}\tpcc={:.3f}\tapcc={:.3f}\tnet={:.3f}\tanet={:.3f}'
+                      .format(step, test_batch_p[i,0].data[0], cc_prev, acc_prev, pcc_prev, apcc_prev, net_prev, anet_prev))
+
+            print('Average MAE:\tcc={:.4f}\tacc={:.4f}\tpcc={:.4f}\tapcc={:.4f}\tnet={:.4f}\tanet={:.4f}'
+                  .format(mae(prevs, cc_prevs), mae(prevs, acc_prevs), mae(prevs, pcc_prevs), mae(prevs, apcc_prevs),
+                          mae(prevs, net_prevs), mae(prevs, anet_prevs)))
+            print('Average MSE:\tcc={:.4f}\tacc={:.4f}\tpcc={:.4f}\tapcc={:.4f}\tnet={:.4f}\tanet={:.4f}'
+                  .format(mse(prevs, cc_prevs), mse(prevs, acc_prevs), mse(prevs, pcc_prevs), mse(prevs, apcc_prevs),
+                          mse(prevs, net_prevs), mse(prevs, anet_prevs)))
 
         if step % save_every == 0:
             filename = get_name(step)
