@@ -3,15 +3,19 @@ import torch.nn.functional as F
 
 
 class LSTMQuantificationNet(torch.nn.Module):
-    def __init__(self, classes, quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes, bidirectional=True):
+    def __init__(self, classes, quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes, bidirectional=True,
+                 stats_in_sequence=False, stats_in_lin_layers=False):
         super().__init__()
 
         self.quant_lstm_hidden_size = quant_lstm_hidden_size
         self.quant_lstm_layers = quant_lstm_layers
 
-        #self.classout2hidden = torch.nn.Linear(classes, self.quant_lstm_hidden_size)
-        #self.quant_lstm = torch.nn.LSTM(quant_lstm_hidden_size, quant_lstm_hidden_size, quant_lstm_layers)
-        self.bidirectional=bidirectional
+        self.stats_in_sequence = stats_in_sequence
+        self.stats_in_lin_layers = stats_in_lin_layers
+
+        # self.classout2hidden = torch.nn.Linear(classes, self.quant_lstm_hidden_size)
+        # self.quant_lstm = torch.nn.LSTM(quant_lstm_hidden_size, quant_lstm_hidden_size, quant_lstm_layers)
+        self.bidirectional = bidirectional
         self.quant_lstm = torch.nn.LSTM(classes, quant_lstm_hidden_size, quant_lstm_layers, bidirectional=bidirectional)
         prev_size = self.quant_lstm_hidden_size * (2 if bidirectional else 1)
         self.set_lins = torch.nn.ModuleList()
@@ -23,19 +27,27 @@ class LSTMQuantificationNet(torch.nn.Module):
     def init_quant_hidden(self, batch_size):
         directions = 2 if self.bidirectional else 1
         var_hidden = torch.autograd.Variable(
-            torch.zeros(self.quant_lstm_layers*directions, batch_size, self.quant_lstm_hidden_size))
-        var_cell = torch.autograd.Variable(torch.zeros(self.quant_lstm_layers*directions, batch_size, self.quant_lstm_hidden_size))
+            torch.zeros(self.quant_lstm_layers * directions, batch_size, self.quant_lstm_hidden_size))
+        var_cell = torch.autograd.Variable(
+            torch.zeros(self.quant_lstm_layers * directions, batch_size, self.quant_lstm_hidden_size))
         if next(self.quant_lstm.parameters()).is_cuda:
             return (var_hidden.cuda(), var_cell.cuda())
         else:
             return (var_hidden, var_cell)
 
-    def forward(self, x):
-        #lstm_input = self.classout2hidden(x)
-        lstm_input = x
+    def forward(self, x, stats=None):
+        # lstm_input = self.classout2hidden(x)
+        if not stats is None and self.stats_in_sequence:
+            lstm_input = torch.cat([stats, x])
+        else:
+            lstm_input = x
         lstm_input = lstm_input.transpose(0, 1)
         rnn_output, rnn_hidden = self.quant_lstm(lstm_input, self.init_quant_hidden(x.size()[0]))
-        abstracted = rnn_output[-1]# rnn_hidden[0][-1]
+        abstracted = rnn_output[-1]  # rnn_hidden[0][-1]
+
+        if not stats is None and self.stats_in_lin_layers:
+            abstracted = torch.cat([stats, abstracted])
+
         for linear in self.set_lins:
             abstracted = F.relu(linear(abstracted))
         quant_output = F.softmax(self.quant_output(abstracted), dim=1)
