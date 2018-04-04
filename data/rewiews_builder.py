@@ -81,26 +81,25 @@ class ReviewsDataset:
 
     def limit_vocabulary(self, max_words = 10000):
         if self.format() == 'seq':
-            if len(self.vocabulary) < max_words: return
+            if len(self.vocabulary) > max_words:
+                wordid_count = Counter(itertools.chain.from_iterable(self.Xtr)) #count all word-ids
+                most_common_ids, _ = zip(*wordid_count.most_common(max_words))
+                tokeep_ids = set(most_common_ids) # keep only top-n (as a set)
+                id2word = dict((id,word) for word,id in self.vocabulary.items()) #converts from id2word using the old vocabulary
 
-            wordid_count = Counter(itertools.chain.from_iterable(self.Xtr)) #count all word-ids
-            most_common_ids, _ = zip(*wordid_count.most_common(max_words))
-            tokeep_ids = set(most_common_ids) # keep only top-n (as a set)
-            id2word = dict((id,word) for word,id in self.vocabulary.items()) #converts from id2word using the old vocabulary
+                new_vocab = dict(zip([id2word[id] for id in tokeep_ids], range(max_words)))
+                new_vocab[UNK] = len(new_vocab)
 
-            new_vocab = dict(zip([id2word[id] for id in tokeep_ids], range(max_words)))
-            new_vocab[UNK] = len(new_vocab)
+                def reconvert(sequence):
+                    return [(new_vocab[id2word[id]] if id in tokeep_ids else new_vocab[UNK]) for id in sequence]
 
-            def reconvert(sequence):
-                return [(new_vocab[id2word[id]] if id in tokeep_ids else new_vocab[UNK]) for id in sequence]
+                self.Xtr = list(map(reconvert, self.Xtr))
+                if self.ismultipletest(): #Xte is a list of test sets
+                    self.Xte = [list(map(reconvert, Xte_i)) for Xte_i in self.Xte]
+                else: #Xte is a single test set
+                    self.Xte = list(map(reconvert, self.Xte))
 
-            self.Xtr = list(map(reconvert, self.Xtr))
-            if self.ismultipletest(): #Xte is a list of test sets
-                self.Xte = [list(map(reconvert, Xte_i)) for Xte_i in self.Xte]
-            else: #Xte is a single test set
-                self.Xte = list(map(reconvert, self.Xte))
-
-            self.vocabulary = new_vocab
+                self.vocabulary = new_vocab
         else:
             # apply round-robin feature selection with information gain as the TSR
             fs = RoundRobin(k=max_words)
