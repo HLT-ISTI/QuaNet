@@ -3,7 +3,7 @@ import torch.nn.functional as F
 
 
 class LSTMQuantificationNet(torch.nn.Module):
-    def __init__(self, classes, quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes, bidirectional=True,
+    def __init__(self, classes, inputsize, quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes, bidirectional=True,
                  stats_in_sequence=False, stats_in_lin_layers=False, drop_p=0.5):
         super().__init__()
 
@@ -17,7 +17,7 @@ class LSTMQuantificationNet(torch.nn.Module):
         # self.classout2hidden = torch.nn.Linear(classes, self.quant_lstm_hidden_size)
         # self.quant_lstm = torch.nn.LSTM(quant_lstm_hidden_size, quant_lstm_hidden_size, quant_lstm_layers)
         self.bidirectional = bidirectional
-        self.quant_lstm = torch.nn.LSTM(classes, quant_lstm_hidden_size, quant_lstm_layers, bidirectional=bidirectional)
+        self.quant_lstm = torch.nn.LSTM(inputsize, quant_lstm_hidden_size, quant_lstm_layers, bidirectional=bidirectional)
         prev_size = self.quant_lstm_hidden_size * (2 if bidirectional else 1)
         stats_size = ((6 * 2) if stats_in_lin_layers else 0)  # number of statistics used alongside the last dense layer
         prev_size += stats_size
