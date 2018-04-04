@@ -285,8 +285,9 @@ input_size = classes
 if use_document_embeddings_from_classifier:
     input_size += 32
 
-quant_net = LSTMQuantificationNet(classes, input_size, quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes,
-                                  stats_in_lin_layers=True, drop_p=0.5)
+quant_net = LSTMQuantificationNet(classes, input_size, quant_lstm_hidden_size, quant_lstm_layers,
+                                  quant_lin_layers_sizes, stats_in_lin_layers=stats_in_lin_layers,
+                                  stats_in_sequence=stats_in_sequence, drop_p=0.5)
 
 if use_cuda:
     quant_net = quant_net.cuda()

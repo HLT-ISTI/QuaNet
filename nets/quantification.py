@@ -41,7 +41,7 @@ class LSTMQuantificationNet(torch.nn.Module):
     def forward(self, x, stats=None):
         # lstm_input = self.classout2hidden(x)
         if not stats is None and self.stats_in_sequence:
-            lstm_input = torch.cat([stats, x])
+            lstm_input = torch.cat((F.pad(stats,(0,x.size()[-1]-stats.size()[-1])), x),dim=1)
         else:
             lstm_input = x
         lstm_input = lstm_input.transpose(0, 1)
