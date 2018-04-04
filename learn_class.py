@@ -106,7 +106,7 @@ embedding_size = 100
 
 class_lstm_hidden_size = 128
 class_lstm_layers = 1
-class_lin_layers_sizes = [64]
+class_lin_layers_sizes = [64,32]
 dropout = 0.2
 
 class_loss_function = torch.nn.MSELoss()

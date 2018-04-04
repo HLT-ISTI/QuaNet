@@ -29,7 +29,7 @@ class LSTMTextClassificationNet(torch.nn.Module):
         else:
             return (var_hidden, var_cell)
 
-    def forward(self, x):
+    def forward(self, x, with_last_fc=False):
         embedded = self.embedding(x)
         rnn_output, rnn_hidden = self.class_lstm(embedded, self.init_class_hidden(x.size()[1]))
         abstracted = F.dropout(rnn_hidden[0][-1], self.dropout)
@@ -37,7 +37,10 @@ class LSTMTextClassificationNet(torch.nn.Module):
             abstracted = F.dropout(F.relu(linear(abstracted)))
         output = self.class_output(abstracted)
         class_output = F.softmax(output,dim=1)
-        return class_output
+        if with_last_fc:
+            return class_output,abstracted
+        else:
+            return class_output
 
 
 class CNNTextClassificationNet(torch.nn.Module):

@@ -7,7 +7,7 @@ from keras.datasets import imdb
 from keras.preprocessing import sequence
 from time import time
 import torch.cuda
-from inntt import *
+#from inntt import *
 from nets.quantification import LSTMQuantificationNet
 from plot_correction import plot_corr, plot_loss, plot_bins
 
@@ -65,8 +65,8 @@ def variable(tensor):
 
 
 def create_batch_(yhat_pos, yhat_neg, val_tpr, val_fpr, batch_size=1000, sample_length=1000):
-    batch_prevalences = np.random.random(batch_size)*0.8+0.1
-    #batch_prevalences = np.random.random(batch_size)
+    # batch_prevalences = np.random.random(batch_size)*0.8+0.1
+    batch_prevalences = np.random.random(batch_size)
 
     batch_y = list()
     batch_yhat = list()
@@ -74,14 +74,15 @@ def create_batch_(yhat_pos, yhat_neg, val_tpr, val_fpr, batch_size=1000, sample_
     stats = list()
     for prevalence in batch_prevalences:
         sample_pos_count = int(sample_length * prevalence)
-        if sample_pos_count == sample_length:
-            sample_pos_count = sample_length - 1
-        if sample_pos_count == 0:
-            sample_pos_count = 1
         sample_neg_count = sample_length - sample_pos_count
         real_prevalences.append(sample_pos_count / sample_length)
 
-        sample_yhat = np.concatenate((choices(yhat_pos, k=sample_pos_count), choices(yhat_neg, k=sample_neg_count)))
+        if sample_pos_count == sample_length:
+            sample_yhat = choices(yhat_pos, k=sample_pos_count)
+        elif sample_pos_count == 0:
+            sample_yhat = choices(yhat_neg, k=sample_neg_count)
+        else:
+            sample_yhat = np.concatenate((choices(yhat_pos, k=sample_pos_count), choices(yhat_neg, k=sample_neg_count)))
         pos_neg_code = np.array([[1., 0.], [0., 1.]])
         sample_y = np.repeat(pos_neg_code, repeats=[sample_pos_count, sample_neg_count], axis=0)
 
@@ -212,6 +213,8 @@ if use_cuda:
 else:
     class_net = class_net.cpu()
 
+use_document_embeddings_from_classifier = True
+
 class_net.eval()
 val_yhat = list()
 test_yhat = list()
@@ -267,11 +270,11 @@ with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
         open('quant_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
 
 
-    if interactive:
-       innt = InteractiveNeuralTrainer()
-       innt.add_optim_param_adapt('ws', quant_optimizer, 'lr', inc_factor=10.)
-       innt.add_optim_param_adapt('da', quant_optimizer, 'weight_decay', inc_factor=2.)
-       innt.start()
+    # if interactive:
+    #    innt = InteractiveNeuralTrainer()
+    #    innt.add_optim_param_adapt('ws', quant_optimizer, 'lr', inc_factor=10.)
+    #    innt.add_optim_param_adapt('da', quant_optimizer, 'weight_decay', inc_factor=2.)
+    #    innt.start()
 
     quant_loss_sum = 0
     t_init = time()
