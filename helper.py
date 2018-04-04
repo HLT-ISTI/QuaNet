@@ -83,6 +83,7 @@ def mse(prevs, method):
     return np.mean(diff ** 2.)
 
 def split_train_validation(x, y, val_portion, shuffle=True):
+    np.random.seed(23)
     if shuffle:
         order = np.random.permutation(x.shape[0])
         x, y = x[order], y[order]
