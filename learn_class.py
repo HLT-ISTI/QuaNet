@@ -4,18 +4,31 @@ import torch
 from keras.datasets import imdb
 from keras.preprocessing import sequence
 from time import time
-
+import os
+from data.rewiews_builder import ReviewsDataset
 from nets.classification import LSTMTextClassificationNet
 
 max_features = 5000
 max_len = 120
 classes = 2
+MAX_SAMPLE_LENGTH = 500
 
-print('Loading data...')
-(x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=max_features)
+dataset = 'hp'
+
+print('Loading dataset '+dataset)
+if dataset == 'imdb':
+    (x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=max_features)
+elif dataset == 'hp':
+    datasets_dir = os.path.join('../datasets/build/online',dataset)
+    hp = os.path.join(datasets_dir, 'Seq2000_1OnlineS3F.pkl')
+    data = ReviewsDataset.load(hp)
+    (x_train, y_train), (x_test, y_test) = (np.array(data.Xtr), data.ytr), (np.array(data.Xte), data.yte)
 
 
-def split_train_validation(x, y, val_portion):
+def split_train_validation(x, y, val_portion, shuffle=True):
+    if shuffle:
+        order = np.random.permutation(x.shape[0])
+        x, y = x[order], y[order]
     x_pos = x[y == 1]
     x_neg = x[y != 1]
     pos_split = int(len(x_pos) * (1 - val_portion))
@@ -133,7 +146,7 @@ class_net = LSTMTextClassificationNet(max_features, embedding_size, classes, cla
                                       class_lstm_layers, class_lin_layers_sizes, dropout)
 
 if use_cuda:
-    class_net.cuda()
+    class_net = class_net.cuda()
 
 print(class_net)
 

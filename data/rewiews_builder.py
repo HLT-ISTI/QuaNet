@@ -136,7 +136,7 @@ class ReviewsDataset:
             return isinstance(self.Xte,list)
 
 
-def build_online_dataset(reviews_path, outdir, polarity_split_point=None, filter_split_point=False):
+def build_online_dataset(reviews_path, outdir, polarity_split_point=None, filterout_splitpoint=False):
     """
     Builds a series of datasets for quantification in two formats.
     Each dataset is associated with a date (e.g., '2005'); the test set corresponds to documents of that date, and the
@@ -156,24 +156,24 @@ def build_online_dataset(reviews_path, outdir, polarity_split_point=None, filter
     :param outdir: directory where the Datasets will be dumped
     :param polarity_split_point: if specified, binarizes the labels around this value; e.g., a 4 rating will be converted
             to 1 (positive) if polarity_split_point=3; if not specified, the 5star-rating is preserved (default: None)
-    :param filter_split_point: if True, reviews labelled with polarity_split_point will be discarded, if False, then
+    :param filterout_splitpoint: if True, reviews labelled with polarity_split_point will be discarded; if False, then
             the polarity_split_point will be considered as negative. Only used when polarity_split_point is not None
     :return:
     """
 
-    config = ('OnlineS%d%s' % (polarity_split_point, 'F' if filter_split_point else '') if polarity_split_point else '5stars')
+    config = ('OnlineS%d%s' % (polarity_split_point, 'F' if filterout_splitpoint else '') if polarity_split_point else '5stars')
     with open(join(outdir, config + '.log'), 'w') as loginfo_file:
 
         if not exists(outdir):
             os.makedirs(outdir)
 
         documents = fetch_reviews(reviews_path)
-        print('Building online dataset for {} with split_point {} and filter {}'.format(reviews_path, polarity_split_point, filter_split_point), file=loginfo_file)
+        print('Building online dataset for {} with split_point {} and filter {}'.format(reviews_path, polarity_split_point, filterout_splitpoint), file=loginfo_file)
         print('Read {} documents from file {}'.format(reviews_path, len(documents)), file=loginfo_file)
         print(documents[:10])
 
         if polarity_split_point:
-            documents = binarize_star_rating(documents, polarity_split_point, filter_split_point)
+            documents = binarize_star_rating(documents, polarity_split_point, filterout_splitpoint)
             sentiment_labels = np.array([0,1])
         else:
             sentiment_labels = np.array([1, 2, 3, 4, 5])
@@ -319,8 +319,8 @@ if __name__ == '__main__':
     hp = join(datasets_dir, 'HP_reviews.txt')
     kindle = join(datasets_dir, 'Kindle_reviews.txt')
 
-    build_online_dataset(hp, join(build_online_dir, 'hp'), polarity_split_point=3, filter_split_point=True)
-    build_online_dataset(kindle, join(build_online_dir, 'kindle'), polarity_split_point=3, filter_split_point=True)
+    build_online_dataset(hp, join(build_online_dir, 'hp'), polarity_split_point=3, filterout_splitpoint=True)
+    build_online_dataset(kindle, join(build_online_dir, 'kindle'), polarity_split_point=3, filterout_splitpoint=True)
 
     build_single_dataset(hp, join(build_single_dir, 'hp'), training_slots=2, polarity_split_point=3, filter_split_point=True)
     build_single_dataset(kindle, join(build_single_dir, 'kindle'), training_slots=3, polarity_split_point=3, filter_split_point=True)

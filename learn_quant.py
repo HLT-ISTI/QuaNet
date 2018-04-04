@@ -1,5 +1,5 @@
 from time import time
-
+import os
 import numpy as np
 import torch
 import torch.cuda
@@ -18,8 +18,20 @@ max_len = 120
 classes = 2
 MAX_SAMPLE_LENGTH = 500
 
-print('Loading data...')
-(train_x, train_y), (test_x, test_y) = imdb.load_data(num_words=max_features)
+dataset = 'hp'
+
+print('Loading dataset '+dataset)
+if dataset == 'imdb':
+    (train_x, train_y), (test_x, test_y) = imdb.load_data(num_words=max_features)
+elif dataset == 'hp':
+    datasets_dir = os.path.join('../datasets/build/online',dataset)
+    hp = os.path.join(datasets_dir, 'Seq2000_1OnlineS3F.pkl')
+    data = ReviewsDataset.load(hp)
+    (train_x, train_y), (test_x, test_y) = (np.array(data.Xtr), data.ytr), (np.array(data.Xte), data.yte)
+
+    pass
+
+
 
 
 def split_train_validation(x, y, val_portion):
