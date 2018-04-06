@@ -83,7 +83,7 @@ class ReviewsDataset:
         if self.format() == 'seq':
             if len(self.vocabulary) > max_words:
                 wordid_count = Counter(itertools.chain.from_iterable(self.Xtr)) #count all word-ids
-                most_common_ids, _ = zip(*wordid_count.most_common(max_words))
+                most_common_ids, _ = zip(*wordid_count.most_common(max_words-1)) #hold one value for the UNK
                 tokeep_ids = set(most_common_ids) # keep only top-n (as a set)
                 id2word = dict((id,word) for word,id in self.vocabulary.items()) #converts from id2word using the old vocabulary
 

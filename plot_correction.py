@@ -9,12 +9,10 @@ def __create_dir(savedir,savename):
         if not os.path.exists(savedir):
             os.makedirs(savedir)
 
-def plot_corr(prevalences, methods, labels, maxpoints=100, savedir=None, savename=None):
+def plot_corr(prevalences, methods, labels, maxpoints=100, savedir=None, savename=None, train_prev=None, test_prev=None):
     assert len(methods) == len(labels), 'label lenghts mismatch'
     __create_dir(savedir,savename)
     plt.clf()
-
-
 
     order = list(zip(prevalences, *methods))
     order.sort()
@@ -22,13 +20,23 @@ def plot_corr(prevalences, methods, labels, maxpoints=100, savedir=None, savenam
     prevalences, *methods = zip(*order)
 
     fig, ax = plt.subplots()
-    ax.plot([0,1], [0,1], '-k', label='ideal')
-    for i,method in enumerate(methods):
-        ax.plot(prevalences, method, '-o', label=labels[i], markersize=3)
-
-    ax.set(xlabel='prevalence', ylabel='estim_p', title='correction methods')
+    ax.set_aspect('equal')
     ax.grid()
-    ax.legend()
+    ax.plot([0,1], [0,1], '--k', label='ideal', zorder=1)
+    for i,method in enumerate(methods):
+        ax.plot(prevalences, method, '-o', label=labels[i], markersize=3, zorder=2)
+    if train_prev is not None:
+        ax.scatter(train_prev, train_prev, c='c', label='tr-prev', linewidth=2, edgecolor='k', s=100, zorder=3)
+    if test_prev is not None:
+        ax.scatter(test_prev, test_prev, c='y', label='te-prev', linewidth=2, edgecolor='k', s=100, zorder=3)
+
+    ax.set(xlabel='prevalence', ylabel='estimated prevalence', title='correction methods')
+    ax.set_ylim(0, 1)
+    ax.set_xlim(0, 1)
+
+    box = ax.get_position()
+    ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
+    ax.legend(loc='center left', bbox_to_anchor=(1, 0.5))
 
     if savedir:
         fig.savefig(os.path.join(savedir,savename))

@@ -1,171 +1,258 @@
+import argparse
+from time import time
 from nets.quantification import LSTMQuantificationNet
 from plot_correction import plot_corr, plot_loss, plot_bins
-from helper import *
+from quantification.helpers import *
+from util.helpers import *
 # from inntt import *
 
-dataset = 'hp'
-max_features = 5000
-use_document_embeddings_from_classifier = True
-class_steps = 20000
+def compute_classify_count_methods(test_batch_yhat, test_batch_p, val_tpr, val_fpr):
 
-(x_train, y_train), (x_val, y_val), (x_test, y_test) = loadDataset(dataset, max_features=max_features)
-print('x_train shape:', x_train.shape)
-print('x_val shape:', x_val.shape)
-print('x_test shape:', x_test.shape)
+    test_samples = test_batch_yhat.shape[0]
 
-with open('class_' + get_name(class_steps, info=dataset), mode='br') as modelfile:
-    class_net = torch.load(modelfile)
+    prevs = test_batch_p[:, 0].data
+    prevs = prevs.cpu().numpy() if use_cuda else prevs.numpy()
+
+    cc_prevs, pcc_prevs = [], []
+    for i in range(test_samples):
+        cc_prevs.append(classify_and_count(np.asarray(test_batch_yhat[i, :, :].data)))
+        pcc_prevs.append(probabilistic_classify_and_count(np.asarray(test_batch_yhat[i, :, :].data)))
+
+    acc_prevs = [adjusted_quantification(cc, val_tpr, val_fpr) for cc in cc_prevs]
+    apcc_prevs = [adjusted_quantification(pcc, val_tpr, val_fpr) for pcc in pcc_prevs]
+
+    return prevs, cc_prevs, pcc_prevs, acc_prevs, apcc_prevs
+
+
+def eval_metric(metric, prevs, *methods):
+    return [metric(prevs, method_i) for method_i in methods]
+
+
+def main(args):
+
+    (x_train, y_train), (x_val, y_val), (x_test, y_test) = loadDataset(dataset=args.data, vocabularysize=args.vocabularysize)
+    print('x_train shape:', x_train.shape)
+    print('x_val shape:', x_val.shape)
+    print('x_test shape:', x_test.shape)
+
+    class_net = torch.load(args.model)
     class_net = class_net.cuda() if use_cuda else class_net
 
+    print('creating val_yhat and test_yhat')
+    val_yhat = predict(class_net, x_val, args.use_embeddings)
+    test_yhat = predict(class_net, x_test, args.use_embeddings)
+    val_tpr = tpr(val_yhat, y_val)
+    val_fpr = fpr(val_yhat, y_val)
 
-print('creating val_yhat and test_yhat')
-val_yhat = predict(class_net, x_val, use_document_embeddings_from_classifier)
-test_yhat = predict(class_net, x_test, use_document_embeddings_from_classifier)
-val_tpr = tpr(val_yhat, y_val)
-val_fpr = fpr(val_yhat, y_val)
+    quant_lstm_layers = 1
+    classes = 2
+    input_size = classes if not args.use_embeddings else classes + 32
 
-quant_lstm_hidden_size = 64
-quant_lstm_layers = 1
-quant_lin_layers_sizes = [1024, 512]  # [128,64,32]
-classes = 2
-stats_in_lin_layers = True
-stats_in_sequence = True
-drop_p = 0.5
-input_size = classes if not use_document_embeddings_from_classifier else classes + 32
+    quant_net = LSTMQuantificationNet(classes, input_size, args.hiddensize, quant_lstm_layers,
+                                      args.linlayers, drop_p=args.dropout,
+                                      stats_in_lin_layers=args.stats_layer,
+                                      stats_in_sequence=args.stats_lstm)
 
-quant_net = LSTMQuantificationNet(classes, input_size, quant_lstm_hidden_size, quant_lstm_layers,
-                                  quant_lin_layers_sizes, drop_p=drop_p,
-                                  stats_in_lin_layers=stats_in_lin_layers,
-                                  stats_in_sequence=stats_in_sequence)
+    quant_net = quant_net.cuda() if use_cuda else quant_net
+    print(quant_net)
 
-quant_net = quant_net.cuda() if use_cuda else quant_net
-print(quant_net)
+    quant_loss_function = torch.nn.MSELoss()
+    quant_optimizer = torch.optim.Adam(quant_net.parameters(), lr=args.lr, weight_decay=args.weightdecay)
 
-lr = 0.0001
-weight_decay = 0.00001
+    with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
+            open('quant_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
 
-quant_loss_function = torch.nn.MSELoss()
-quant_optimizer = torch.optim.Adam(quant_net.parameters(), lr=lr, weight_decay=weight_decay)
+        train_prev = np.mean(y_train)
+        test_prev = np.mean(y_test)
+        ntests = y_test.shape[0]
 
-print('init quantification')
-with open('quant_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
-        open('quant_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
+        test_samples = 10000
 
-    # if interactive:
-    #    innt = InteractiveNeuralTrainer()
-    #    innt.add_optim_param_adapt('ws', quant_optimizer, 'lr', inc_factor=10.)
-    #    innt.add_optim_param_adapt('da', quant_optimizer, 'weight_decay', inc_factor=2.)
-    #    innt.start()
+        val_yhat_pos, val_yhat_neg = split_pos_neg(val_yhat, y_val)
+        test_yhat_pos, test_yhat_neg = split_pos_neg(test_yhat, y_test)
 
-    quant_steps = 10000
-    status_every = 10
-    test_every = 200
-    save_every = 1000
-    test_samples = 1000
-    batch_size = 100
-    interactive = False
+        test_sample_yhat, test_sample_y, test_sample_prev, test_sample_stats = \
+            quantification_batch(test_yhat_pos, test_yhat_neg, val_tpr, val_fpr, input_size, test_samples, sample_length=500)
 
-    quant_loss_sum = 0
-    t_init = time()
-    val_yhat_pos = val_yhat[y_val == 1]
-    val_yhat_neg = val_yhat[y_val != 1]
-    test_yhat_pos = test_yhat[y_test == 1]
-    test_yhat_neg = test_yhat[y_test != 1]
-    losses = []
-    for step in range(1, quant_steps + 1):
 
-        sample_length = min(10 + step // 10, MAX_SAMPLE_LENGTH)
+        print('Computing classify & count based methods (cc, acc, pcc, apcc) for {} samples of the test set'.format(test_samples))
+        prevs, cc_prevs, pcc_prevs, acc_prevs, apcc_prevs = compute_classify_count_methods(test_sample_yhat, test_sample_prev, val_tpr, val_fpr)
 
-        batch_yhat, batch_y, batch_p, stats = create_batch_(val_yhat_pos, val_yhat_neg,
-                                                            val_tpr, val_fpr, input_size,
-                                                            batch_size, sample_length)
+        print('Evaluate classify & count based methods with MAE and MSE')
+        mae_samples = eval_metric(mae, prevs, cc_prevs, pcc_prevs, acc_prevs, apcc_prevs)
+        mse_samples = eval_metric(mse, prevs, cc_prevs, pcc_prevs, acc_prevs, apcc_prevs)
 
-        quant_net.train()
-        quant_optimizer.zero_grad()
-        batch_phat = quant_net.forward(batch_yhat, stats)
-        quant_loss = quant_loss_function(batch_phat, batch_p)
-        quant_loss.backward()
-        quant_optimizer.step()
+        print('Computing classify & count based methods (cc, acc, pcc, apcc) for the test set')
+        cc = classify_and_count(test_yhat)
+        pcc = probabilistic_classify_and_count(test_yhat)
+        acc = adjusted_quantification(cc, val_tpr, val_fpr)
+        apcc = adjusted_quantification(pcc, val_tpr, val_fpr)
+        mae_test = eval_metric(mae, [test_prev], [cc], [pcc], [acc], [apcc])
+        mse_test = eval_metric(mse, [test_prev], [cc], [pcc], [acc], [apcc])
 
-        loss = quant_loss.data[0]
-        quant_loss_sum += loss
-        losses.append(loss)
+        print('Init quant_net training:')
+        status_every = 10
+        test_every = 200
 
-        if step % status_every == 0:
-            printtee('step {}\tloss {:.5}\tv {:.2f}'
-                     .format(step, quant_loss_sum / status_every, status_every / (time() - t_init)), outputfile)
-            quant_loss_sum = 0
-            t_init = time()
+        best_loss = None
+        quant_loss_sum = 0
+        patience = 0
+        losses = []
+        t_init = time()
+        for step in range(1, args.maxiter + 1):
 
-        if step % test_every == 0:
-            quant_net.eval()
+            sample_length = min(10 + step // 10, MAX_SAMPLE_LENGTH) if args.incremental else 500
+            adjust_learning_rate(quant_optimizer, step, each=args.maxiter/2, initial_lr=args.lr)
 
-            test_batch_yhat, test_batch_y, test_batch_p, stats = create_batch_(test_yhat_pos, test_yhat_neg, val_tpr,
-                                                                               val_fpr, input_size, test_samples,
-                                                                               sample_length)
-            test_batch_phat = quant_net.forward(test_batch_yhat, stats)
+            batch_yhat, batch_y, batch_p, stats = quantification_batch(val_yhat_pos, val_yhat_neg,
+                                                                       val_tpr, val_fpr, input_size,
+                                                                       args.batchsize, sample_length)
+            quant_net.train()
+            quant_optimizer.zero_grad()
+            batch_phat = quant_net.forward(batch_yhat, stats)
+            quant_loss = quant_loss_function(batch_phat, batch_p)
+            quant_loss.backward()
+            quant_optimizer.step()
 
-            # prevalence by sampling test -----------------------------------------------------------------------------
-            prevs, net_prevs, cc_prevs, pcc_prevs, acc_prevs, apcc_prevs, anet_prevs = [], [], [], [], [], [], []
-            for i in range(test_samples):
+            loss = quant_loss.data[0]
+            quant_loss_sum += loss
+            losses.append(loss)
 
-                net_prev = float(test_batch_phat[i, 0])
-                cc_prev = classify_and_count(np.asarray(test_batch_yhat[i, :, :].data))
-                pcc_prev = probabilistic_classify_and_count(np.asarray(test_batch_yhat[i, :, :].data))
+            if step % status_every == 0:
+                printtee('step {}\tloss {:.5}\tsample_length {}\tv {:.2f}'
+                         .format(step, quant_loss_sum / status_every, sample_length, status_every / (time() - t_init)),
+                         outputfile)
+                quant_loss_sum = 0
+                t_init = time()
 
-                anet_prev = adjusted_quantification(net_prev, val_tpr, val_fpr)
-                acc_prev = adjusted_quantification(cc_prev, val_tpr, val_fpr)
-                apcc_prev = adjusted_quantification(pcc_prev, val_tpr, val_fpr)
+            if step % test_every == 0:
+                quant_net.eval()
 
-                prevs.append(test_batch_p[i, 0].data[0])
+                test_batch_phat = quant_batched_predictions(quant_net, test_sample_yhat, test_sample_stats, batchsize=args.batchsize)
 
-                net_prevs.append(net_prev)
-                cc_prevs.append(cc_prev)
-                pcc_prevs.append(pcc_prev)
-                anet_prevs.append(anet_prev)
-                acc_prevs.append(acc_prev)
-                apcc_prevs.append(apcc_prev)
+                # prevalence by sampling test -----------------------------------------------------------------------------
+                net_prevs, anet_prevs = [], []
+                printmax = 10
+                for i in range(test_samples):
+                    net_prevs.append(float(test_batch_phat[i, 0]))
 
-                printtee('step {}\tp={:.3f}\tcc={:.3f}\tacc={:.3f}\tpcc={:.3f}\tapcc={:.3f}\tnet={:.3f}\tanet={:.3f}'
-                      .format(step, test_batch_p[i, 0].data[0], cc_prev, acc_prev, pcc_prev, apcc_prev, net_prev,
-                              anet_prev), outputfile)
+                    if i < printmax:
+                        printtee('\tsampling-test {}/{}:\tp={:.3f}\tcc={:.3f}\tacc={:.3f}\tpcc={:.3f}\tapcc={:.3f}\tnet={:.3f}'
+                          .format(i,test_samples,
+                                  test_sample_prev[i, 0].data[0], cc_prevs[i], acc_prevs[i], pcc_prevs[i], apcc_prevs[i], net_prevs[i]),
+                                 outputfile)
+                    elif i == printmax: printtee('\t...{} omitted'.format(test_samples-i), outputfile)
 
-            printtee('Average MAE:\tcc={:.5f}\tacc={:.5f}\tpcc={:.5f}\tapcc={:.5f}\tnet={:.5f}\tanet={:.5f}'
-                  .format(mae(prevs, cc_prevs), mae(prevs, acc_prevs), mae(prevs, pcc_prevs), mae(prevs, apcc_prevs),
-                          mae(prevs, net_prevs), mae(prevs, anet_prevs)), testoutputfile)
-            printtee('Average MSE:\tcc={:.5f}\tacc={:.5f}\tpcc={:.5f}\tapcc={:.5f}\tnet={:.5f}\tanet={:.5f}'
-                  .format(mse(prevs, cc_prevs), mse(prevs, acc_prevs), mse(prevs, pcc_prevs), mse(prevs, apcc_prevs),
-                          mse(prevs, net_prevs), mse(prevs, anet_prevs)), testoutputfile)
+                mae_net_sample = mae(prevs, net_prevs)
+                mse_net_sample = mse(prevs, net_prevs)
 
-            # plots ---------------------------------------------------------------------------------------------------
-            methods = [cc_prevs, acc_prevs, pcc_prevs, apcc_prevs, net_prevs]
-            labels = ['cc', 'acc', 'pcc', 'apcc', 'net']
-            plot_corr(prevs, methods, labels, savedir='../plots', savename='corr.png')  # 'step_' + str(step) + '.png')
-            plot_bins(prevs, methods, labels, mae, bins=10,
-                      savedir='../plots', savename='bins_' + mae.__name__ + '.png')
-            plot_bins(prevs, methods, labels, mse, bins=10,
-                      savedir='../plots', savename='bins_' + mse.__name__ + '.png')
-            plot_loss(range(step), losses, savedir='../plots', savename='loss.png')
+                printtee('Samples MAE:\tcc={:.5f} acc={:.5f} pcc={:.5f} apcc={:.5f} net={:.5f}'
+                      .format(mae_samples[0], mae_samples[1], mae_samples[2], mae_samples[3], mae_net_sample), testoutputfile)
 
-            # full test -----------------------------------------------------------------------------------------------
-            p_ave = []
-            true_prev = np.mean(y_test)
-            cc = classify_and_count(test_yhat)
-            acc = adjusted_quantification(cc, val_tpr, val_fpr)
-            pcc = probabilistic_classify_and_count(test_yhat)
-            apcc = adjusted_quantification(pcc, val_tpr, val_fpr)
-            for test_batch_yhat, test_batch_y, test_batch_p, stats in \
-                    create_fulltest_batch(test_yhat, y_test, val_tpr,val_fpr, input_size, batch_size=batch_size, sample_length=sample_length):
-                test_batch_phat = quant_net.forward(test_batch_yhat, stats)
-                ntest_in_batch = test_batch_yhat.shape[0]*test_batch_yhat.shape[1]
-                p_ave.append(np.mean(test_batch_phat[:, 0].data.cpu().numpy()) ) # * ntest_in_batch
+                printtee('Samples MSE:\tcc={:.5f} acc={:.5f} pcc={:.5f} apcc={:.5f} net={:.5f}'
+                      .format(mse_samples[0], mse_samples[1], mse_samples[2], mse_samples[3], mse_net_sample), testoutputfile)
 
-            p_ave = np.mean(p_ave)
-            printtee('FullTest prevalence cc={:.4f} acc={:.4f} pcc={:.4f} apcc={:.4f} net={:.4f} true_prev={:.4f}'
-                  .format(cc, acc, pcc, apcc, p_ave, true_prev), testoutputfile)
+                # plots ---------------------------------------------------------------------------------------------------
+                methods = [cc_prevs, acc_prevs, pcc_prevs, apcc_prevs, net_prevs]
+                labels = ['cc', 'acc', 'pcc', 'apcc', 'net']
+                plot_corr(prevs, methods, labels, savedir=args.plotdir, savename='corr.png',
+                          train_prev=train_prev, test_prev=test_prev)
+                plot_bins(prevs, methods, labels, mae, bins=10,
+                          savedir=args.plotdir, savename='bins_' + mae.__name__ + '.png')
+                plot_bins(prevs, methods, labels, mse, bins=10,
+                          savedir=args.plotdir, savename='bins_' + mse.__name__ + '.png')
+                plot_loss(range(step), losses,
+                          savedir=args.plotdir, savename='loss.png')
 
-        if step % save_every == 0:
-            filename = get_name(step, dataset)
-            print('saving to', filename)
-            with open(filename, mode='bw') as modelfile:
-                torch.save(quant_net, modelfile)
+                # full test -----------------------------------------------------------------------------------------------
+                #test_batch_phat = quant_batched_predictions(quant_net, test_batch_yhat, test_stats, batchsize=args.batchsize)
+                net_prev_test = 0
+                for test_batch_yhat_i, _, _, test_stats_i in \
+                        create_fulltest_batch(test_yhat, y_test, val_tpr, val_fpr, input_size, batch_size=args.batchsize, sample_length=sample_length):
+                    test_batch_phat = quant_net.forward(test_batch_yhat_i, test_stats_i)
+                    ntest_in_batch = test_batch_yhat_i.shape[0]*test_batch_yhat_i.shape[1]
+                    estim_batch_prev = np.mean(test_batch_phat[:, 0].data.cpu().numpy())
+                    net_prev_test +=  estim_batch_prev * (ntest_in_batch/ntests)
+
+                net_prev_test = np.mean(net_prev_test)
+                mae_net_test = mae([test_prev], [net_prev_test])
+                mse_net_test = mse([test_prev], [net_prev_test])
+
+                printtee('\nFullTest prevalence cc={:.4f} acc={:.4f} pcc={:.4f} apcc={:.4f} net={:.4f} [train_prev={:.4f} test_prev={:.4f}]'
+                    .format(cc, acc, pcc, apcc, net_prev_test, train_prev, test_prev), testoutputfile)
+
+                printtee('FullTest MAE:\tcc={:.5f} acc={:.5f} pcc={:.5f} apcc={:.5f} net={:.5f}'
+                         .format(mae_test[0], mae_test[1], mae_test[2], mae_test[3], mae_net_test),
+                         testoutputfile)
+
+                printtee('FullTest MSE:\tcc={:.5f} acc={:.5f} pcc={:.5f} apcc={:.5f} net={:.5f}'
+                         .format(mse_test[0], mse_test[1], mse_test[2], mse_test[3], mse_net_test),
+                         testoutputfile)
+
+                if best_loss is None or quant_loss_sum < best_loss:
+                    print('\tsaving model in ' + args.output)
+                    torch.save(quant_net, args.output)
+                    best_loss = quant_loss_sum
+                    best_metrics = {'mae_net_sample':mae_net_sample, 'mse_net_sample':mse_net_sample,
+                                    'mae_net_test': mae_net_test, 'mse_net_test': mse_net_test}
+                    patience = 0
+                else:
+                    patience -= 1
+                    if patience == 0:
+                        print('Early stop after 20 loss checks without improvement')
+                        break
+
+    baselines_mae_metrics = {'mae_cc_sample':mae_samples[0], 'mae_pcc_sample':mae_samples[1],
+                             'mae_acc_sample': mae_samples[2], 'mae_apcc_sample':mae_samples[3]}
+    baselines_mse_metrics = {'mse_cc_sample': mse_samples[0], 'mse_pcc_sample': mse_samples[1],
+                             'mse_acc_sample': mse_samples[2], 'mse_apcc_sample': mse_samples[3]}
+
+    return {**baselines_mae_metrics, **baselines_mse_metrics, **best_metrics}
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Learn Classifier',
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument('data',
+                        help='Path to the corpus file')
+    parser.add_argument('model',
+                        help='Path to the classifier model')
+    parser.add_argument('-v', '--vocabularysize',
+                        help='Maximum length of the vocabulary', type=int, default=5000)
+    parser.add_argument('-E', '--use-embeddings',
+                        help='use the embeddings as input to the quantifier', default=False, action='store_true')
+    parser.add_argument('-H', '--hiddensize',
+                        help='Size of the LSTM hidden layers', type=int, default=64)
+    parser.add_argument('-d', '--dropout',
+                        help='Drop probability for dropout', type=float, default=0.5)
+    parser.add_argument('-l', '--linlayers',
+                        help='Linear layers on top of the LSTM output', type=int, default=[1024, 512], nargs='+')
+    parser.add_argument('--incremental',
+                        help='Activates the incremental mode for the sample_length', default=False, action='store_true')
+    parser.add_argument('-I', '--maxiter',
+                        help='Maximum number of iterations', type=int, default=10000)
+    parser.add_argument('-O', '--output',
+                        help='Path to the output file containing the model parameters', type=str,
+                        default='./quant_net.pt')
+    parser.add_argument('--lr',
+                        help='learning rate', type=float, default=0.0001)
+    parser.add_argument('--weightdecay',
+                        help='weight decay', type=float, default=0)
+    parser.add_argument('--batchsize',
+                        help='batch size', type=float, default=100)
+    parser.add_argument('--plotdir',
+                        help='Path to the plots', type=str, default='../plots')
+    parser.add_argument('--stats-layer',
+                        help='Concatenates the statistics (tpr,fpr,cc,acc,pcc,apcc) to the dense representation of the quantification',
+                        default=False, action='store_true')
+    parser.add_argument('--stats-lstm',
+                        help='Concatenates the statistics (tpr,fpr,cc,acc,pcc,apcc) to sequence in input to the LSTM',
+                        default=False, action='store_true')
+    parser.add_argument('-r', '--results',
+                        help='Path to the filer where to write the evaluation results', default='./results.txt',
+                        type=str)
+
+    args = parser.parse_args()
+
+    main(args)

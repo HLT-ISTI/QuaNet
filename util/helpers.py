@@ -26,15 +26,16 @@ def notexist_exit(path):
         print("Error. Path <%s> does not exist or is not accessible." %path)
         sys.exit()
 
-def create_if_not_exists(dir):
-    if not os.path.exists(dir): os.makedirs(dir)
+def create_if_not_exists(path):
+    dir = os.path.dirname(path)
+    if not os.path.exists(dir):
+        os.makedirs(dir)
     return dir
 
-
-def tee(outstring, fout):
-    print(outstring)
-    fout.write(outstring + '\n')
-
+def printtee(msg, fout):
+    print(msg)
+    fout.write(msg + '\n')
+    fout.flush()
 
 def split_at(list_, prop):
     split_point = int(prop * len(list_))
@@ -47,27 +48,6 @@ def shuffle_tied(l1, l2, random_seed=None):
     random.shuffle(l1_l2_tied)
     l1_, l2_ = zip(*l1_l2_tied)
     return list(l1_), list(l2_)
-
-"""
-def evaluation_metrics(predictions, true_labels):
-    no_test_examples = (sum(true_labels) == 0)
-    no_predictions = (sum(predictions) == 0)
-    acc = accuracy_score(true_labels, predictions)
-    if no_test_examples and no_predictions:
-        f1 = 1.0
-    else:
-        f1 = f1_score(true_labels, predictions, average='binary', pos_label=1)
-    if no_predictions:
-        p = 1.0
-    else:
-        p = precision_score(true_labels, predictions, average='binary', pos_label=1)
-    if no_test_examples:
-        r=1.0
-    else:
-        r = recall_score(true_labels, predictions, average='binary', pos_label=1)
-    return acc, f1, p, r
-"""
-
 
 
 

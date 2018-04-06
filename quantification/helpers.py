@@ -1,7 +1,5 @@
 import numpy as np
 import torch
-from time import time
-import os
 from keras.preprocessing import sequence
 from data.rewiews_builder import ReviewsDataset
 
@@ -12,16 +10,14 @@ def variable(tensor):
     var = torch.autograd.Variable(tensor)
     return var.cuda() if use_cuda else var
 
-def loadDataset(dataset, max_features=5000, val_portion = 0.4, max_len = 120):
+def loadDataset(dataset, vocabularysize=5000, val_portion = 0.4, max_len = 120):
     print('Loading dataset '+dataset)
     if dataset == 'imdb':
         from keras.datasets import imdb
-        (x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=max_features)
-    elif dataset == 'hp':
-        datasets_dir = os.path.join('../datasets/build/online',dataset)
-        hp = os.path.join(datasets_dir, 'Seq2004_1OnlineS3F.pkl')
-        data = ReviewsDataset.load(hp)
-        data.limit_vocabulary(max_features)
+        (x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=vocabularysize)
+    else:
+        data = ReviewsDataset.load(dataset)
+        data.limit_vocabulary(vocabularysize)
         (x_train, y_train), (x_test, y_test) = (np.array(data.Xtr), data.ytr), (np.array(data.Xte), data.yte)
 
     x_train, y_train, x_val, y_val = split_train_validation(x_train, y_train, val_portion)
@@ -40,13 +36,50 @@ def get_name(step, info=''):
     filename = info + 'net_' + str(step)
     return filename + '.pt'
 
+def class_batched_predictions(class_net, x, batchsize=100):
+    size = x.shape[1]
+    nbatches = size // batchsize
+    if size  % batchsize > 0:
+        nbatches += 1
+    y_accum = []
+    for b in range(nbatches):
+        y_accum.append(class_net.forward(x[:, b * batchsize:(b + 1) * batchsize]).data)
+    return torch.cat(y_accum)
+
+def quant_batched_predictions(quant_net, x, stats, batchsize=100):
+    size = x.shape[0]
+    nbatches = size // batchsize
+    if size  % batchsize > 0:
+        nbatches += 1
+    y_accum = []
+    for b in range(nbatches):
+        xbatch = x[b * batchsize:(b + 1) * batchsize]
+        statsbatch = stats[b * batchsize:(b + 1) * batchsize] if stats is not None else None
+        y_accum.append(quant_net.forward(xbatch, statsbatch).data)
+    return torch.cat(y_accum)
+
+
+def todata(v):
+    return v.data if isinstance(v, torch.autograd.Variable) else v
+
 def accuracy(y_hard_true, y_soft_pred):
+    y_hard_true = todata(y_hard_true)
+    y_soft_pred= todata(y_soft_pred)
     pred = y_soft_pred[:, 0] > 0.5
     truth = y_hard_true[:, 0] > 0.5
-    return torch.mean((pred == truth).type(torch.FloatTensor)).data[0]
+    return torch.mean((pred == truth).type(torch.FloatTensor))
 
-def _accuracy(yhat, y):
-    return ((y + (yhat[:, 0] > 0.5)) % 2 == 2).sum() / len(y)
+def f1(y_hard_true, y_soft_pred):
+    y_hard_true = todata(y_hard_true)
+    y_soft_pred = todata(y_soft_pred)
+    pred = (y_soft_pred[:, 0] > 0.5)
+    truth = (y_hard_true[:, 0] > 0.5)
+    tp = torch.sum(pred[truth == 1])
+    fp = torch.sum(pred[truth != 1])
+    fn = torch.sum(truth[pred != 1])
+    f1 = 2*tp/(2*tp+fp+fn)
+    return f1
+
 
 def classify_and_count(yhat):
     return (yhat[:, 0] > 0.5).sum() / len(yhat)
@@ -97,34 +130,34 @@ def split_train_validation(x, y, val_portion, shuffle=True):
     y_val = np.asarray([1] * (len(x_pos) - pos_split) + [0] * (len(x_neg) - neg_split))
     return x_train, y_train, x_val, y_val
 
-def printtee(msg, fout):
-    print(msg)
-    fout.write(msg + '\n')
-    fout.flush()
+def split_pos_neg(x,y):
+    return x[y==1], x[y!=1]
 
 def sample_data(x_pos, x_neg, prevalence, batch_size):
-    sample_pos_count = int(batch_size * prevalence)
-    sample_neg_count = batch_size - sample_pos_count
-    prevalence = sample_pos_count / batch_size
+    pos_count = int(batch_size * prevalence)
+    neg_count = batch_size - pos_count
+    prevalence = pos_count / batch_size
 
-    sampled_pos = x_pos[np.random.choice(x_pos.shape[0], sample_pos_count)]
-    sampled_neg = x_neg[np.random.choice(x_neg.shape[0], sample_neg_count)]
-    sampled_x = np.vstack((sampled_pos,sampled_neg))
+    sampled_pos = x_pos[np.random.choice(x_pos.shape[0], pos_count)]
+    sampled_neg = x_neg[np.random.choice(x_neg.shape[0], neg_count)]
 
-    pos_neg_code = np.array([[1,0],[0,1]])
-    sampled_y = np.repeat(pos_neg_code, repeats=[sample_pos_count,sample_neg_count], axis=0)
+    sampled_x = np.vstack((sampled_pos, sampled_neg))
+    sampled_y = np.array([1]*pos_count+[0]*neg_count)
 
-    order = np.random.permutation(sample_pos_count+sample_neg_count)
+    order = np.random.permutation(pos_count + neg_count)
     sampled_x = sampled_x[order]
     sampled_y = sampled_y[order]
 
-    sampled_x = variable(torch.LongTensor(sampled_x).transpose(0, 1))
-    sampled_y = variable(torch.FloatTensor(sampled_y).view(-1, 2))
-    prevalence_var = variable(torch.FloatTensor([prevalence, 1 - prevalence]).view([1, 2]))
+    return sampled_x, sampled_y, prevalence
 
-    return sampled_x, sampled_y, prevalence_var
+def prepare_classification(x, y):
+    y = np.vstack((y,1-y)).T
+    xvar = variable(torch.LongTensor(x).transpose(0, 1))
+    yvar = variable(torch.FloatTensor(y))
+    return xvar, yvar
 
-def create_batch_(yhat_pos, yhat_neg, val_tpr, val_fpr, input_size, batch_size=1000, sample_length=1000):
+
+def quantification_batch(yhat_pos, yhat_neg, val_tpr, val_fpr, input_size, batch_size=1000, sample_length=1000):
     # batch_prevalences = np.random.random(batch_size)*0.8+0.1
     batch_prevalences = np.random.random(batch_size)
 
@@ -216,8 +249,8 @@ def create_fulltest_batch(yhat, y, val_tpr, val_fpr, input_size, batch_size=1000
 
     raise StopIteration()
 
-def predict(class_net, x, use_document_embeddings_from_classifier):
-    #mode=class_net.training
+def predict(class_net, x, use_document_embeddings_from_classifier=False):
+    mode=class_net.training
     class_net.eval()
     yhat = list()
     batch_size = 500
@@ -233,44 +266,14 @@ def predict(class_net, x, use_document_embeddings_from_classifier):
                 class_net.forward(
                     variable(torch.LongTensor(x[i:i + batch_size]).transpose(0, 1))).data.tolist())
 
-    #class_net.train(mode)
+    class_net.train(mode)
     return np.asarray(yhat)
 
-#
-# def predict(class_net, x, use_document_embeddings_from_classifier):
-#     class_net.eval()
-#     val_yhat = list()
-#     test_yhat = list()
-#     batch_size = 500
-#     if use_document_embeddings_from_classifier:
-#         print('creating val_yhat')
-#         for i in range(0, x_val.shape[0], batch_size):
-#             yhat, doc_embeddings = class_net.forward(
-#                 variable(torch.LongTensor(x_val[i:i + batch_size]).transpose(0, 1)),
-#                 use_document_embeddings_from_classifier)
-#             val_yhat.extend(torch.cat((yhat, doc_embeddings), dim=1).data.tolist())
-#         val_yhat = np.asarray(val_yhat)
-#
-#         print('creating test_yhat')
-#         for i in range(0, x_test.shape[0], batch_size):
-#             yhat, doc_embeddings = class_net.forward(
-#                 variable(torch.LongTensor(x_test[i:i + batch_size]).transpose(0, 1)),
-#                 use_document_embeddings_from_classifier)
-#             test_yhat.extend(torch.cat((yhat, doc_embeddings), dim=1).data.tolist())
-#         test_yhat = np.asarray(test_yhat)
-#     else:
-#         print('creating val_yhat')
-#         for i in range(0, x_val.shape[0], batch_size):
-#             val_yhat.extend(
-#                 class_net.forward(
-#                     variable(torch.LongTensor(x_val[i:i + batch_size]).transpose(0, 1))).data.tolist())
-#         val_yhat = np.asarray(val_yhat)
-#
-#         print('creating test_yhat')
-#         for i in range(0, x_test.shape[0], batch_size):
-#             test_yhat.extend(
-#                 class_net.forward(
-#                     variable(torch.LongTensor(x_test[i:i + batch_size]).transpose(0, 1))).data.tolist())
-#         test_yhat = np.asarray(test_yhat)
-#
-#     return val_yhat, test_yhat
+def adjust_learning_rate(optimizer, iter, each, initial_lr):
+    # sets the learning rate to the initial LR decayed by 0.1 every 'each' iterations
+    lr = initial_lr * (0.1 ** (iter // each))
+    state_dict = optimizer.state_dict()
+    for param_group in state_dict['param_groups']:
+        param_group['lr'] = lr
+    optimizer.load_state_dict(state_dict)
+    return lr

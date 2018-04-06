@@ -1,78 +1,121 @@
+import argparse
+from time import time
 from nets.classification import LSTMTextClassificationNet
-from helper import *
+from quantification.helpers import *
+from util.helpers import *
 
-dataset = 'hp'
-max_features = 5000
 
-(x_train, y_train), (x_val, y_val), (x_test, y_test) = loadDataset(dataset, max_features=max_features)
-print('x_train shape:', x_train.shape)
-print('x_val shape:', x_val.shape)
-print('x_test shape:', x_test.shape)
+def main(args):
 
-embedding_size = 100
-class_lstm_hidden_size = 128
-class_lstm_layers = 1
-class_lin_layers_sizes = [1024,32]
-dropout = 0.5
-classes = 2
+    create_if_not_exists(args.output)
 
-class_steps = 20000
-status_every = 100
-test_every = 1000
-save_every = 1000
+    (x_train, y_train), (x_val, y_val), (x_test, y_test) = loadDataset(dataset=args.data, vocabularysize=args.vocabularysize)
+    print('x_train shape:', x_train.shape)
+    print('x_val shape:', x_val.shape)
+    print('x_test shape:', x_test.shape)
 
-class_net = LSTMTextClassificationNet(max_features+1, embedding_size, classes, class_lstm_hidden_size,
-                                      class_lstm_layers, class_lin_layers_sizes, dropout)
-class_net = class_net.cuda() if use_cuda else class_net
-print(class_net)
+    class_lstm_layers = 1
+    classes = 2
 
-lr = 0.0001
-weight_decay = 0.0001
-prevalence = 0.5
-batch_size = 1000
+    status_every = 50
+    test_every = 500
 
-class_loss_function = torch.nn.MSELoss()
-class_optimizer = torch.optim.Adam(class_net.parameters(), lr=lr, weight_decay=weight_decay)
+    class_net = LSTMTextClassificationNet(args.vocabularysize, args.embeddingsize, classes, args.hiddensize,
+                                          class_lstm_layers, args.linlayers, args.dropout)
+    class_net = class_net.cuda() if use_cuda else class_net
+    print(class_net)
 
-x_train_pos = x_train[y_train==1]
-x_train_neg = x_train[y_train!=1]
-x_test_pos = x_test[y_test==1]
-x_test_neg = x_test[y_test!=1]
+    criterion = torch.nn.MSELoss()
+    optimizier = torch.optim.Adam(class_net.parameters(), lr=args.lr, weight_decay=args.weightdecay)
 
-with open('class_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
-        open('class_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
+    x_train_pos, x_train_neg = split_pos_neg(x_train, y_train)
 
-    class_loss_sum, quant_loss_sum, acc_sum = 0, 0, 0
-    t_init = time()
-    for step in range(1, class_steps + 1):
+    x_val, y_val = prepare_classification(x_val, y_val)
+    x_test, y_test = prepare_classification(x_test, y_test)
+    best_val_f1 = -1
 
-        x, y_class, y_quant = sample_data(x_train_pos, x_train_neg, prevalence, batch_size)
+    with open('class_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
+            open('class_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
 
-        class_optimizer.zero_grad()
-        class_net.train()
-        y_class_pred = class_net.forward(x)
-        class_loss = class_loss_function(y_class_pred, y_class)
-        class_loss.backward()
-        class_optimizer.step()
+        loss_sum, accuracy_sum = 0, 0
+        t_init = time()
+        patience = 20
+        for step in range(1, args.maxiter + 1):
+            class_net.train()
 
-        class_loss_sum += class_loss.data[0]
-        acc_sum += accuracy(y_class, y_class_pred)
+            prevalence = np.random.rand()
 
-        if step % status_every == 0:
-            printtee('step {}\tloss {:.5f}\t acc {:.5f}\t v {:.2f} steps/s'
-                  .format(step, class_loss_sum / status_every, acc_sum / status_every, status_every/(time()-t_init)), outputfile)
-            class_loss_sum, acc_sum = 0, 0
-            t_init = time()
+            x, y, _ = sample_data(x_train_pos, x_train_neg, prevalence, args.batchsize)
+            x, y = prepare_classification(x, y)
 
-        if step % test_every == 0:
-            class_net.eval()
-            test_var_x, test_var_y, y_quant = sample_data(x_test_pos, x_test_neg, prevalence, batch_size)
-            y_class_pred = class_net.forward(test_var_x)
-            test_accuracy = accuracy(test_var_y, y_class_pred)
-            printtee('testacc {:.5f}'.format(test_accuracy), testoutputfile)
+            optimizier.zero_grad()
+            yhat = class_net.forward(x)
+            class_loss = criterion(yhat, y)
+            class_loss.backward()
+            optimizier.step()
 
-        if step % save_every == 0:
-            filename = get_name(step, dataset)
-            print('saving to', filename)
-            with open('class_' + filename, mode='bw') as modelfile:
-                torch.save(class_net, modelfile)
+            loss_sum += class_loss.data[0]
+            accuracy_sum += accuracy(y, yhat)
+
+            if step % status_every == 0:
+                printtee('step {}\tloss {:.5f}\t accuracy {:.5f}\t v {:.2f} steps/s'
+                      .format(step, loss_sum / status_every, accuracy_sum / status_every, status_every/(time()-t_init)), outputfile)
+                loss_sum, accuracy_sum = 0, 0
+                t_init = time()
+
+            if step % test_every == 0:
+                class_net.eval()
+                y_hat = class_batched_predictions(class_net, x_val)
+                accuracy_val = accuracy(y_val, y_hat)
+                f1_val = f1(y_val, y_hat)
+
+                y_hat = class_batched_predictions(class_net, x_test)
+                accuracy_test = accuracy(y_test, y_hat)
+                f1_test = f1(y_test, y_hat)
+                printtee('ValAcc {:.5f}\tValF1 {:.5f}\t TestAcc {:.5f}\tTestF1 {:.5f} [patience {}]'
+                         .format(accuracy_val, accuracy_test, f1_val, f1_test, patience), testoutputfile)
+
+                if f1_val > best_val_f1:
+                    print('\tsaving model to', args.output)
+                    torch.save(class_net, args.output)
+                    best_val_f1=f1_val
+                    patience = 20
+                else:
+                    patience-=1
+                    if patience==0:
+                        print('Early stop after 20 validations without improvement')
+                        break
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Learn Classifier',
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+
+    parser.add_argument('data',
+                        help='Path to the corpus file')
+    parser.add_argument('-v', '--vocabularysize',
+                        help='Maximum length of the vocabulary', type=int, default=5000)
+    parser.add_argument('-e', '--embeddingsize',
+                        help='Size of the word embeddings', type=int, default=100)
+    parser.add_argument('-H', '--hiddensize',
+                        help='Size of the LSTM hidden layers', type=int, default=128)
+    parser.add_argument('-d', '--dropout',
+                        help='Drop probability for dropout', type=float, default=0.5)
+    parser.add_argument('-l', '--linlayers',
+                        help='Linear layers on top of the LSTM output', type=int, default=[1024, 32], nargs='+')
+    parser.add_argument('-I', '--maxiter',
+                        help='Maximum number of iterations', type=int, default=20000)
+    parser.add_argument('-O', '--output',
+                        help='Path to the output file containing the model parameters', type=str,
+                        default='./class_net.pt')
+    parser.add_argument('--lr',
+                        help='learning rate', type=float, default=0.0001)
+    parser.add_argument('--weightdecay',
+                        help='weight decay', type=float, default=1e-4)
+    parser.add_argument('--batchsize',
+                        help='batch size', type=float, default=100)
+
+    args = parser.parse_args()
+
+
+    main(args)
