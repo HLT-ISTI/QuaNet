@@ -3,13 +3,16 @@ from learn_class import main as classifier
 from learn_quant import main as quantifier
 from os.path import join
 import glob, ntpath
+import subprocess
+from subprocess import PIPE, STDOUT
+
 
 class_common_args = []
 quant_common_args = ['--use-embeddings', '--stats-lstm', '--stats-layer', '--incremental']
 
 dataset_dir = '../datasets/build/online'
 
-for datagroup in ['kindle','hp']:
+for datagroup in ['hp','kindle']:
 
     write_header = True
     with open('./results_'+datagroup+'.csv', 'w') as fo:
@@ -24,16 +27,17 @@ for datagroup in ['kindle','hp']:
             plotdir = join('../plots', datagroup, modelname)
 
             class_args = [datapath,'--output', classmodelpath] + class_common_args
-            classifier(class_args)
+            #classifier(class_args) #seems to create memory leaks
+            p = subprocess.run(['python3','learn_class.py'] + class_args, stdout=PIPE, stderr=STDOUT)
 
             quant_args = [datapath, classmodelpath, '--plotdir', plotdir, '--output',quantmodelpath] + quant_common_args
+            #quant_results = quantifier(quant_args) #seems to create memory leaks
+            p = subprocess.run(['python3', 'learn_quant.py'] + class_args + '--results', stdout=PIPE, stderr=STDOUT)
 
-            quant_results = quantifier(quant_args)
-
-            if write_header:
-                fo.write('data\t'+quant_results.header()+'\n')
-                write_header = False
-            fo.write(datagroup+'-'+dataset_name+'\t'+quant_results.show()+'\n')
-            fo.flush()
+            #if write_header:
+            #    fo.write('data\t'+quant_results.header()+'\n')
+            #    write_header = False
+            #fo.write(datagroup+'-'+dataset_name+'\t'+quant_results.show()+'\n')
+            #fo.flush()
 
 

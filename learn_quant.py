@@ -1,4 +1,4 @@
-import argparse
+import argparse,ntpath
 from time import time
 from nets.quantification import LSTMQuantificationNet
 from plot_correction import plot_corr, plot_loss, plot_bins
@@ -210,6 +210,13 @@ def main(args):
     qr.add_results('mae', 'full', *mae_test, best_metrics['mae_net_test'])
     qr.add_results('mse', 'full', *mse_test, best_metrics['mse_net_test'])
 
+    add_header = (not os.path.exists(args.results))
+    with open(args.results, 'a') as res:
+        if add_header:
+            res.write('data\t'+qr.header()+'\n')
+        dataset_name = ntpath.basename(args.data)
+        res.write(dataset_name+'\t'+qr.show()+'\n')
+
     return qr
 
 def parseargs(args):
@@ -245,6 +252,8 @@ def parseargs(args):
                         help='batch size', type=float, default=100)
     parser.add_argument('--plotdir',
                         help='Path to the plots', type=str, default='../plots')
+    parser.add_argument('--results',
+                        help='Path to the results', type=str, default='../results.txt')
     parser.add_argument('--stats-layer',
                         help='Concatenates the statistics (tpr,fpr,cc,acc,pcc,apcc) to the dense representation of the quantification',
                         default=False, action='store_true')
