@@ -6,6 +6,49 @@ from data.rewiews_builder import ReviewsDataset
 use_cuda = True
 MAX_SAMPLE_LENGTH = 500
 
+class QuantificationResults:
+    def __init__(self, train_prev, test_prev):
+        self.train_prev=train_prev
+        self.test_prev = test_prev
+        self.sampletest = {}
+        self.fulltest = {}
+        self.metrics = set()
+
+    def add_results(self, metric_name, test_name, cc, pcc, acc, apcc, net):
+        assert test_name in ["sample", "full"], 'unexpected test_name'
+        results_container = self.sampletest if test_name == "sample" else self.fulltest
+        results_container[metric_name] = {'cc':cc, 'pcc':pcc, 'acc':acc, 'apcc':apcc, 'net':net}
+        self.metrics.add(metric_name)
+
+    def get(self, metric_name, test_name, method_name):
+        results_container = self.sampletest if test_name == "sample" else self.fulltest
+        return results_container[metric_name][method_name]
+
+    def header(self):
+        strbuilder = []
+        metrics = sorted(list(self.metrics))
+        for metric in metrics:
+            for mode in ["sample", "full"]:
+                for method in ['cc','pcc','acc','apcc','net']:
+                    strbuilder.append('-'.join([metric,mode,method]))
+        strbuilder.append('train_prev')
+        strbuilder.append('test_prev')
+        return '\t'.join(strbuilder)
+
+    def show(self):
+        strbuilder = []
+        metrics = sorted(list(self.metrics))
+        for metric in metrics:
+            for mode in ["sample", "full"]:
+                for method in ['cc','pcc','acc','apcc','net']:
+                    strbuilder.append(self.get(metric,mode,method))
+        strbuilder.append(self.train_prev)
+        strbuilder.append(self.test_prev)
+        return '\t'.join(['%.5f'%x for x in strbuilder])
+
+
+
+
 def variable(tensor):
     var = torch.autograd.Variable(tensor)
     return var.cuda() if use_cuda else var

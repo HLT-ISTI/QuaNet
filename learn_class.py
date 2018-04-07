@@ -4,8 +4,8 @@ from nets.classification import LSTMTextClassificationNet
 from quantification.helpers import *
 from util.helpers import *
 
-
 def main(args):
+    args = parseargs(args)
 
     create_if_not_exists(args.output)
 
@@ -18,7 +18,7 @@ def main(args):
     classes = 2
 
     status_every = 50
-    test_every = 500
+    test_every = 200
 
     class_net = LSTMTextClassificationNet(args.vocabularysize, args.embeddingsize, classes, args.hiddensize,
                                           class_lstm_layers, args.linlayers, args.dropout)
@@ -32,7 +32,7 @@ def main(args):
 
     x_val, y_val = prepare_classification(x_val, y_val)
     x_test, y_test = prepare_classification(x_test, y_test)
-    best_val_f1 = -1
+    best_val_accuracy = -1
 
     with open('class_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
             open('class_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
@@ -73,12 +73,12 @@ def main(args):
                 accuracy_test = accuracy(y_test, y_hat)
                 f1_test = f1(y_test, y_hat)
                 printtee('ValAcc {:.5f}\tValF1 {:.5f}\t TestAcc {:.5f}\tTestF1 {:.5f} [patience {}]'
-                         .format(accuracy_val, accuracy_test, f1_val, f1_test, patience), testoutputfile)
+                         .format(accuracy_val, f1_val, accuracy_test, f1_test, patience), testoutputfile)
 
-                if f1_val > best_val_f1:
+                if accuracy_val > best_val_accuracy:
                     print('\tsaving model to', args.output)
                     torch.save(class_net, args.output)
-                    best_val_f1=f1_val
+                    best_val_accuracy=accuracy_val
                     patience = 20
                 else:
                     patience-=1
@@ -86,8 +86,7 @@ def main(args):
                         print('Early stop after 20 validations without improvement')
                         break
 
-
-if __name__ == '__main__':
+def parseargs(args):
     parser = argparse.ArgumentParser(description='Learn Classifier',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
@@ -115,7 +114,8 @@ if __name__ == '__main__':
     parser.add_argument('--batchsize',
                         help='batch size', type=float, default=100)
 
-    args = parser.parse_args()
+    return parser.parse_args(args)
 
-
-    main(args)
+if __name__ == '__main__':
+    import sys
+    main(sys.argv[1:])

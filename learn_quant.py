@@ -29,6 +29,8 @@ def eval_metric(metric, prevs, *methods):
 
 
 def main(args):
+    print(args)
+    args = parseargs(args)
 
     (x_train, y_train), (x_val, y_val), (x_test, y_test) = loadDataset(dataset=args.data, vocabularysize=args.vocabularysize)
     print('x_train shape:', x_train.shape)
@@ -125,7 +127,7 @@ def main(args):
                 quant_loss_sum = 0
                 t_init = time()
 
-            if step % test_every == 0:
+            if step % test_every == 0 and sample_length==500:
                 quant_net.eval()
 
                 test_batch_phat = quant_batched_predictions(quant_net, test_sample_yhat, test_sample_stats, batchsize=args.batchsize)
@@ -146,10 +148,10 @@ def main(args):
                 mae_net_sample = mae(prevs, net_prevs)
                 mse_net_sample = mse(prevs, net_prevs)
 
-                printtee('Samples MAE:\tcc={:.5f} acc={:.5f} pcc={:.5f} apcc={:.5f} net={:.5f}'
+                printtee('Samples MAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} net={:.5f}'
                       .format(mae_samples[0], mae_samples[1], mae_samples[2], mae_samples[3], mae_net_sample), testoutputfile)
 
-                printtee('Samples MSE:\tcc={:.5f} acc={:.5f} pcc={:.5f} apcc={:.5f} net={:.5f}'
+                printtee('Samples MSE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} net={:.5f}'
                       .format(mse_samples[0], mse_samples[1], mse_samples[2], mse_samples[3], mse_net_sample), testoutputfile)
 
                 # plots ---------------------------------------------------------------------------------------------------
@@ -178,14 +180,14 @@ def main(args):
                 mae_net_test = mae([test_prev], [net_prev_test])
                 mse_net_test = mse([test_prev], [net_prev_test])
 
-                printtee('\nFullTest prevalence cc={:.4f} acc={:.4f} pcc={:.4f} apcc={:.4f} net={:.4f} [train_prev={:.4f} test_prev={:.4f}]'
-                    .format(cc, acc, pcc, apcc, net_prev_test, train_prev, test_prev), testoutputfile)
+                printtee('\nFullTest prevalence cc={:.4f} pcc={:.4f} acc={:.4f} apcc={:.4f} net={:.4f} [train_prev={:.4f} test_prev={:.4f}]'
+                    .format(cc, pcc, acc, apcc, net_prev_test, train_prev, test_prev), testoutputfile)
 
-                printtee('FullTest MAE:\tcc={:.5f} acc={:.5f} pcc={:.5f} apcc={:.5f} net={:.5f}'
+                printtee('FullTest MAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} net={:.5f}'
                          .format(mae_test[0], mae_test[1], mae_test[2], mae_test[3], mae_net_test),
                          testoutputfile)
 
-                printtee('FullTest MSE:\tcc={:.5f} acc={:.5f} pcc={:.5f} apcc={:.5f} net={:.5f}'
+                printtee('FullTest MSE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} net={:.5f}'
                          .format(mse_test[0], mse_test[1], mse_test[2], mse_test[3], mse_net_test),
                          testoutputfile)
 
@@ -202,16 +204,16 @@ def main(args):
                         print('Early stop after 20 loss checks without improvement')
                         break
 
-    baselines_mae_metrics = {'mae_cc_sample':mae_samples[0], 'mae_pcc_sample':mae_samples[1],
-                             'mae_acc_sample': mae_samples[2], 'mae_apcc_sample':mae_samples[3]}
-    baselines_mse_metrics = {'mse_cc_sample': mse_samples[0], 'mse_pcc_sample': mse_samples[1],
-                             'mse_acc_sample': mse_samples[2], 'mse_apcc_sample': mse_samples[3]}
+    qr = QuantificationResults(train_prev=train_prev, test_prev=test_prev)
+    qr.add_results('mae', 'sample', *mae_samples, best_metrics['mae_net_sample'])
+    qr.add_results('mse', 'sample', *mse_samples, best_metrics['mse_net_sample'])
+    qr.add_results('mae', 'full', *mae_test, best_metrics['mae_net_test'])
+    qr.add_results('mse', 'full', *mse_test, best_metrics['mse_net_test'])
 
-    return {**baselines_mae_metrics, **baselines_mse_metrics, **best_metrics}
+    return qr
 
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Learn Classifier',
+def parseargs(args):
+    parser = argparse.ArgumentParser(description='Learn Quantifier Correction',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument('data',
@@ -249,10 +251,9 @@ if __name__ == '__main__':
     parser.add_argument('--stats-lstm',
                         help='Concatenates the statistics (tpr,fpr,cc,acc,pcc,apcc) to sequence in input to the LSTM',
                         default=False, action='store_true')
-    parser.add_argument('-r', '--results',
-                        help='Path to the filer where to write the evaluation results', default='./results.txt',
-                        type=str)
 
-    args = parser.parse_args()
+    return parser.parse_args(args)
 
-    main(args)
+if __name__ == '__main__':
+    import sys
+    main(sys.argv[1:])
