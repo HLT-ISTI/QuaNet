@@ -2,50 +2,12 @@ import numpy as np
 import torch
 from keras.preprocessing import sequence
 from data.rewiews_builder import ReviewsDataset
+import os
+import itertools
 
 use_cuda = True
-MAX_SAMPLE_LENGTH = 500
-
-class QuantificationResults:
-    def __init__(self, train_prev, test_prev):
-        self.train_prev=train_prev
-        self.test_prev = test_prev
-        self.sampletest = {}
-        self.fulltest = {}
-        self.metrics = set()
-
-    def add_results(self, metric_name, test_name, cc, pcc, acc, apcc, net):
-        assert test_name in ["sample", "full"], 'unexpected test_name'
-        results_container = self.sampletest if test_name == "sample" else self.fulltest
-        results_container[metric_name] = {'cc':cc, 'pcc':pcc, 'acc':acc, 'apcc':apcc, 'net':net}
-        self.metrics.add(metric_name)
-
-    def get(self, metric_name, test_name, method_name):
-        results_container = self.sampletest if test_name == "sample" else self.fulltest
-        return results_container[metric_name][method_name]
-
-    def header(self):
-        strbuilder = []
-        metrics = sorted(list(self.metrics))
-        for metric in metrics:
-            for mode in ["sample", "full"]:
-                for method in ['cc','pcc','acc','apcc','net']:
-                    strbuilder.append('-'.join([metric,mode,method]))
-        strbuilder.append('train_prev')
-        strbuilder.append('test_prev')
-        return '\t'.join(strbuilder)
-
-    def show(self):
-        strbuilder = []
-        metrics = sorted(list(self.metrics))
-        for metric in metrics:
-            for mode in ["sample", "full"]:
-                for method in ['cc','pcc','acc','apcc','net']:
-                    strbuilder.append(self.get(metric,mode,method))
-        strbuilder.append(self.train_prev)
-        strbuilder.append(self.test_prev)
-        return '\t'.join(['%.5f'%x for x in strbuilder])
-
+MAX_SAMPLE_LENGTH=500
+PATIENCE = 20
 
 
 
@@ -53,21 +15,55 @@ def variable(tensor):
     var = torch.autograd.Variable(tensor)
     return var.cuda() if use_cuda else var
 
-def loadDataset(dataset, vocabularysize=5000, val_portion = 0.4, max_len = 120):
+
+def loadDataset(dataset, vocabularysize=5000, val_portion = 0.4, max_len = 120, flatten_test=True):
+    """
+    Loads a sentiment dataset (imdb, hp, or kindle) and process it. Documents are represented as sequences of word-ids.
+    For hp and kindle, the test set is a list of test-sets corresponding to different years, unless flatten_test is True.
+    For hp and kindle, the 'single' version at split point 3 (filtered) is considered. For hp the training slots
+    are 2, and 3 for kindle.
+    More information about the hp and kindle datasets can be found in the dataset builders.
+    :param dataset: imdb, hp, or kindle
+    :param vocabularysize: the size of the vocabulary; all other words will be replaced by the id of the UNK token
+    :param val_portion: validation proportion of the development set
+    :param max_len: maximum length of words for documents, which will be padded to this value
+    :param flatten_test: if True, all test sets are flatten into a single set (ignored for imdb)
+    :return: train/validation/test splits, each as a tuple of input/output of the form (x,y); in case the flatten_test
+    is set to Truen, the x and y components are lists of inputs and outputs
+    """
+    assert dataset in ['imdb','hp','kindle'], 'unknown dataset, valid ones are imdb, hp, and kindle'
     print('Loading dataset '+dataset)
     if dataset == 'imdb':
         from keras.datasets import imdb
         (x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=vocabularysize)
     else:
-        data = ReviewsDataset.load(dataset)
+        #tr_slots = '3' if dataset=='hp' else '3' #for kindle
+        tr_slots = '3'
+        data = ReviewsDataset.load(os.path.join('../datasets/build/single',dataset,'SeqSingle'+tr_slots+'S3F.pkl'))
         data.limit_vocabulary(vocabularysize)
-        (x_train, y_train), (x_test, y_test) = (np.array(data.Xtr), data.ytr), (np.array(data.Xte), data.yte)
+        (x_train, y_train) = (np.array(data.Xtr), data.ytr)
+        if flatten_test:
+            x_test = np.array(list(itertools.chain.from_iterable(data.Xte)))
+            y_test = np.concatenate(data.yte)
+        else:
+            x_test = [np.array(Xte_i) for Xte_i in data.Xte]
+            y_test = data.yte
 
     x_train, y_train, x_val, y_val = split_train_validation(x_train, y_train, val_portion)
+    # def mean_(x):
+    #     mean = np.array([len(d) for d in x]).mean()
+    #     std = np.array([len(d) for d in x]).std()
+    #     print(mean,std)
+    # mean_(x_train)
+    # mean_(x_val)
+    # mean_(x_test)
 
     x_train = sequence.pad_sequences(x_train, maxlen=max_len)
     x_val = sequence.pad_sequences(x_val, maxlen=max_len)
-    x_test = sequence.pad_sequences(x_test, maxlen=max_len)
+    if flatten_test:
+        x_test = sequence.pad_sequences(x_test, maxlen=max_len)
+    else:
+        x_test = [sequence.pad_sequences(Xte_i, maxlen=max_len) for Xte_i in x_test]
 
     return (x_train, y_train), (x_val, y_val), (x_test, y_test)
 
@@ -133,9 +129,18 @@ def probabilistic_classify_and_count(yhat):
 def tpr(yhat, y):
     return ((y * 2 + (yhat[:, 0] > 0.5)) == 3).sum() / y.sum()
 
-
 def fpr(yhat, y):
     return ((y * 2 + (yhat[:, 0] > 0.5)) == 1).sum() / (y == 0).sum()
+
+def ptpr(yhat, y):
+    positives = y.sum()
+    ptp = yhat[y==1,0].sum()
+    return ptp / positives
+
+def pfpr(yhat, y):
+    negatives = (1-y).sum()
+    pfp = yhat[y==0,0].sum()
+    return pfp / negatives
 
 
 def adjusted_quantification(estim, tpr, fpr, clip=True):
@@ -146,17 +151,42 @@ def adjusted_quantification(estim, tpr, fpr, clip=True):
         adjusted = max(min(adjusted, 1.), 0.)
     return adjusted
 
+def mae(prevs, prevs_hat):
+    return Mean(AE, prevs, prevs_hat)
 
-def mae(prevs, method):
-    assert len(prevs) == len(method), 'wrong sizes'
-    diff = np.array([prevs[i] - method[i] for i in range(len(prevs))])
-    return np.mean(np.abs(diff))
+def mse(prevs, prevs_hat):
+    return Mean(SE, prevs, prevs_hat)
 
+def mnkld(prevs, prevs_hat):
+    return Mean(NKLD, prevs, prevs_hat)
 
-def mse(prevs, method):
-    assert len(prevs) == len(method), 'wrong sizes'
-    diff = np.array([prevs[i] - method[i] for i in range(len(prevs))])
-    return np.mean(diff ** 2.)
+def mrae(prevs, prevs_hat):
+    return Mean(RAE, prevs, prevs_hat)
+
+def Mean(error_metric, prevs, prevs_hat):
+    n = len(prevs)
+    assert n == len(prevs_hat), 'wrong sizes'
+    return np.mean([error_metric(prevs[i], prevs_hat[i]) for i in range(n)])
+
+def AE(p, p_hat):
+    return abs(p_hat-p)
+
+def SE(p, p_hat):
+    return (p_hat-p)**2
+
+def KLD(p, p_hat, eps=1e-8):
+    sp = p+eps
+    sp_hat = p_hat + eps
+    first = sp*np.log(sp/sp_hat)
+    second = (1.-sp)*np.log(abs((1.-sp)/(1.-sp_hat)))
+    return first + second
+
+def NKLD(p, p_hat):
+    ekld = np.exp(KLD(p, p_hat))
+    return 2.*ekld/(1+ekld) - 1.
+
+def RAE(p, p_hat, eps=1/(2*MAX_SAMPLE_LENGTH)): # it was proposed in literature an eps = 1/(2*T), with T the size of the test set
+    return abs(p_hat-p+eps)/(p+eps)
 
 def split_train_validation(x, y, val_portion, shuffle=True):
     np.random.seed(23)
@@ -203,6 +233,56 @@ def prepare_classification(x, y):
 def quantification_batch(yhat_pos, yhat_neg, val_tpr, val_fpr, input_size, batch_size=1000, sample_length=1000):
     # batch_prevalences = np.random.random(batch_size)*0.8+0.1
     batch_prevalences = np.random.random(batch_size)
+    #1/20+np.arange(19)*1/20 <-- [0.05, 0.1, 0.15, ... , 0.95]
+
+    batch_y = list()
+    batch_yhat = list()
+    real_prevalences = list()
+    stats = list()
+    for prevalence in batch_prevalences:
+        sample_pos_count = int(sample_length * prevalence)
+        sample_neg_count = sample_length - sample_pos_count
+        real_prevalences.append(sample_pos_count / sample_length)
+
+        if sample_pos_count == sample_length:
+            sample_yhat = choices(yhat_pos, k=sample_pos_count)
+        elif sample_pos_count == 0:
+            sample_yhat = choices(yhat_neg, k=sample_neg_count)
+        else:
+            sample_yhat = np.concatenate((choices(yhat_pos, k=sample_pos_count), choices(yhat_neg, k=sample_neg_count)))
+        pos_neg_code = np.array([[1., 0.], [0., 1.]])
+        sample_y = np.repeat(pos_neg_code, repeats=[sample_pos_count, sample_neg_count], axis=0)
+
+        order = np.argsort(sample_yhat[:, 0])
+        sample_yhat = sample_yhat[order]
+        sample_y = sample_y[order]
+
+        cc = classify_and_count(sample_yhat)
+        acc = adjusted_quantification(cc, val_tpr, val_fpr, clip=False)
+        pcc = probabilistic_classify_and_count(sample_yhat)
+        apcc = adjusted_quantification(pcc, val_tpr, val_fpr, clip=False)
+
+        batch_yhat.append(sample_yhat)
+        batch_y.append(sample_y)
+        stats.append([[cc, 1 - cc], [acc, 1 - acc], [pcc, 1 - pcc], [apcc, 1 - apcc], [val_tpr, 1 - val_tpr],
+                      [val_fpr, 1 - val_fpr]])
+
+    stats_var = variable(torch.FloatTensor(stats).view(-1, 6, 2))
+
+    batch_yhat_var = variable(torch.FloatTensor(batch_yhat).view(-1, sample_length, input_size))
+    batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_length, 2))
+    real_prevalences = np.asarray(real_prevalences)
+    batch_p_var = variable(torch.FloatTensor(np.vstack([real_prevalences, 1 - real_prevalences]).transpose()))
+
+    return batch_yhat_var, batch_y_var, batch_p_var, stats_var
+
+def quantification_uniformbatch(yhat_pos, yhat_neg, val_tpr, val_fpr, input_size, batch_size=1000, sample_length=1000):
+    # batch_prevalences = np.random.random(batch_size)*0.8+0.1
+    #batch_prevalences = np.random.random(batch_size)
+    #x_ticks = np.arange(21)*1/20 # [0, 0.05, 0.1, 0.15, ... , 0.95, 1]
+    x_ticks = 1 / 20 + np.arange(19) * 1 / 20 # [0.05, 0.1, 0.15, ... , 0.95]
+    batch_prevalences = np.repeat(x_ticks,batch_size/x_ticks.size)
+
 
     batch_y = list()
     batch_yhat = list()
@@ -320,3 +400,23 @@ def adjust_learning_rate(optimizer, iter, each, initial_lr):
         param_group['lr'] = lr
     optimizer.load_state_dict(state_dict)
     return lr
+
+
+
+def compute_true_prevalence(test_batch_p):
+    prevs = test_batch_p[:, 0].data
+    return prevs.cpu().numpy() if use_cuda else prevs.numpy()
+
+def compute_classify_count(test_batch_yhat, val_tpr, val_fpr, probabilistic):
+
+    test_samples = test_batch_yhat.shape[0]
+    quantifier = probabilistic_classify_and_count if probabilistic else classify_and_count
+
+    prevs_hat = []
+    for i in range(test_samples):
+        prevs_hat.append(quantifier(np.asarray(test_batch_yhat[i, :, :].data)))
+
+    adjusted_prevs_hat = [adjusted_quantification(prev_hat, val_tpr, val_fpr) for prev_hat in prevs_hat]
+
+    return prevs_hat, adjusted_prevs_hat
+

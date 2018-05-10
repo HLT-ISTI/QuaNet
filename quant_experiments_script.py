@@ -8,7 +8,7 @@ from subprocess import PIPE, STDOUT
 
 
 class_common_args = []
-quant_common_args = ['--use-embeddings', '--stats-lstm', '--stats-layer', '--incremental']
+quant_common_args = ['--use-embeddings', '--stats-lstm', '--stats-layer',  '--incremental']
 
 dataset_dir = '../datasets/build/online'
 
@@ -28,11 +28,11 @@ for datagroup in ['hp','kindle']:
 
             class_args = [datapath,'--output', classmodelpath] + class_common_args
             #classifier(class_args) #seems to create memory leaks
-            p = subprocess.run(['python3','learn_class.py'] + class_args, stdout=PIPE, stderr=STDOUT)
+            p = subprocess.run(['python3','learn_class.py'] + class_args)
 
             quant_args = [datapath, classmodelpath, '--plotdir', plotdir, '--output',quantmodelpath] + quant_common_args
             #quant_results = quantifier(quant_args) #seems to create memory leaks
-            p = subprocess.run(['python3', 'learn_quant.py'] + class_args + '--results', stdout=PIPE, stderr=STDOUT)
+            p = subprocess.run(['python3', 'learn_quant.py'] + quant_args + ['--results','./results_'+datagroup+'.csv'])
 
             #if write_header:
             #    fo.write('data\t'+quant_results.header()+'\n')

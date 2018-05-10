@@ -311,18 +311,18 @@ def build_single_dataset(reviews_path, outdir, training_slots=3, polarity_split_
 
 if __name__ == '__main__':
 
-    datasets_dir = '../datasets/'
-    build_online_dir = join(datasets_dir, 'build', 'online')
+    datasets_dir = '../../datasets/'
+    #build_online_dir = join(datasets_dir, 'build', 'online')
     build_single_dir = join(datasets_dir, 'build', 'single')
 
     hp = join(datasets_dir, 'HP_reviews.txt')
     kindle = join(datasets_dir, 'Kindle_reviews.txt')
 
-    build_online_dataset(hp, join(build_online_dir, 'hp'), polarity_split_point=3, filterout_splitpoint=True)
-    build_online_dataset(kindle, join(build_online_dir, 'kindle'), polarity_split_point=3, filterout_splitpoint=True)
+    #build_online_dataset(hp, join(build_online_dir, 'hp'), polarity_split_point=3, filterout_splitpoint=True)
+    #build_online_dataset(kindle, join(build_online_dir, 'kindle'), polarity_split_point=3, filterout_splitpoint=True)
 
-    build_single_dataset(hp, join(build_single_dir, 'hp'), training_slots=2, polarity_split_point=3, filter_split_point=True)
-    build_single_dataset(kindle, join(build_single_dir, 'kindle'), training_slots=3, polarity_split_point=3, filter_split_point=True)
+    build_single_dataset(hp, join(build_single_dir, 'hp'), training_slots=3, polarity_split_point=3, filter_split_point=True)
+    #build_single_dataset(kindle, join(build_single_dir, 'kindle'), training_slots=3, polarity_split_point=3, filter_split_point=True)
 
     # data = Dataset.load('/home/moreo/pytecs/datasets/build/online/hp/Seq2008_1OnlineS3F.pkl')
     # data.limit_vocabulary(1000)

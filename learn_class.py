@@ -6,19 +6,21 @@ from util.helpers import *
 
 def main(args):
     args = parseargs(args)
+    if '.[data].' in args.output:
+        args.output = args.output.replace('.[data].','.'+args.data+'.')
 
     create_if_not_exists(args.output)
 
     (x_train, y_train), (x_val, y_val), (x_test, y_test) = loadDataset(dataset=args.data, vocabularysize=args.vocabularysize)
-    print('x_train shape:', x_train.shape)
-    print('x_val shape:', x_val.shape)
-    print('x_test shape:', x_test.shape)
+    print('x_train shape:', x_train.shape, 'prev', np.mean(y_train))
+    print('x_val shape:', x_val.shape, 'prev', np.mean(y_val))
+    print('x_test shape:', x_test.shape, 'prev', np.mean(y_test))
 
     class_lstm_layers = 1
     classes = 2
 
-    status_every = 50
-    test_every = 200
+    status_every = 20
+    test_every = 100
 
     class_net = LSTMTextClassificationNet(args.vocabularysize, args.embeddingsize, classes, args.hiddensize,
                                           class_lstm_layers, args.linlayers, args.dropout)
@@ -39,7 +41,7 @@ def main(args):
 
         loss_sum, accuracy_sum = 0, 0
         t_init = time()
-        patience = 20
+        patience = PATIENCE
         for step in range(1, args.maxiter + 1):
             class_net.train()
 
@@ -67,23 +69,21 @@ def main(args):
                 class_net.eval()
                 y_hat = class_batched_predictions(class_net, x_val)
                 accuracy_val = accuracy(y_val, y_hat)
-                f1_val = f1(y_val, y_hat)
 
                 y_hat = class_batched_predictions(class_net, x_test)
                 accuracy_test = accuracy(y_test, y_hat)
-                f1_test = f1(y_test, y_hat)
-                printtee('ValAcc {:.5f}\tValF1 {:.5f}\t TestAcc {:.5f}\tTestF1 {:.5f} [patience {}]'
-                         .format(accuracy_val, f1_val, accuracy_test, f1_test, patience), testoutputfile)
+                printtee('ValAcc {:.5f}\tTestAcc {:.5f}[patience {}]'
+                         .format(accuracy_val, accuracy_test, patience), testoutputfile)
 
                 if accuracy_val > best_val_accuracy:
                     print('\tsaving model to', args.output)
                     torch.save(class_net, args.output)
                     best_val_accuracy=accuracy_val
-                    patience = 20
+                    patience = PATIENCE
                 else:
                     patience-=1
                     if patience==0:
-                        print('Early stop after 20 validations without improvement')
+                        print('Early stop after {} loss checks without improvement'.format(PATIENCE))
                         break
 
 def parseargs(args):
@@ -91,7 +91,7 @@ def parseargs(args):
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
     parser.add_argument('data',
-                        help='Path to the corpus file')
+                        help='Name of the dataset. Valid ones are: imdb, hp, kindle')
     parser.add_argument('-v', '--vocabularysize',
                         help='Maximum length of the vocabulary', type=int, default=5000)
     parser.add_argument('-e', '--embeddingsize',
@@ -101,12 +101,12 @@ def parseargs(args):
     parser.add_argument('-d', '--dropout',
                         help='Drop probability for dropout', type=float, default=0.5)
     parser.add_argument('-l', '--linlayers',
-                        help='Linear layers on top of the LSTM output', type=int, default=[1024, 32], nargs='+')
+                        help='Linear layers on top of the LSTM output', type=int, default=[1024, 100], nargs='+')
     parser.add_argument('-I', '--maxiter',
                         help='Maximum number of iterations', type=int, default=20000)
     parser.add_argument('-O', '--output',
                         help='Path to the output file containing the model parameters', type=str,
-                        default='./class_net.pt')
+                        default='./class_net.[data].pt')
     parser.add_argument('--lr',
                         help='learning rate', type=float, default=0.0001)
     parser.add_argument('--weightdecay',

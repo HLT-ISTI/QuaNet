@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 import numpy as np
+#sns.set(style="darkgrid")
 
 def __create_dir(savedir,savename):
     if savedir:
@@ -9,22 +10,28 @@ def __create_dir(savedir,savename):
         if not os.path.exists(savedir):
             os.makedirs(savedir)
 
-def plot_corr(prevalences, methods, labels, maxpoints=100, savedir=None, savename=None, train_prev=None, test_prev=None):
+def plot_corr(prevalences, methods, labels, maxpoints=None, savedir=None, savename=None, train_prev=None, test_prev=None):
     assert len(methods) == len(labels), 'label lenghts mismatch'
     __create_dir(savedir,savename)
     plt.clf()
 
-    order = list(zip(prevalences, *methods))
-    order.sort()
-    order = order[::len(order)//maxpoints]
-    prevalences, *methods = zip(*order)
+    # order = list(zip(prevalences, *methods))
+    # order.sort()
+    # if maxpoints:
+    #     order = order[::len(order)//maxpoints]
+    # prevalences, *methods = zip(*order)
+    x_ticks = np.sort(np.unique(prevalences))
+    #methods = [list(map(np.mean,methods[prevalences==p])) for p in x_ticks]
+    ave = np.array([[np.mean(method_i[prevalences == p]) for p in x_ticks] for method_i in methods])
+    std = np.array([[np.std(method_i[prevalences == p]) for p in x_ticks] for method_i in methods])
 
     fig, ax = plt.subplots()
     ax.set_aspect('equal')
     ax.grid()
     ax.plot([0,1], [0,1], '--k', label='ideal', zorder=1)
-    for i,method in enumerate(methods):
-        ax.plot(prevalences, method, '-o', label=labels[i], markersize=3, zorder=2)
+    for i,method in enumerate(ave):
+        ax.errorbar(x_ticks, method, fmt='-o', label=labels[i], markersize=3, zorder=2)
+        ax.fill_between(x_ticks, method-std[i], method+std[i], alpha=0.25)
     if train_prev is not None:
         ax.scatter(train_prev, train_prev, c='c', label='tr-prev', linewidth=2, edgecolor='k', s=100, zorder=3)
     if test_prev is not None:
