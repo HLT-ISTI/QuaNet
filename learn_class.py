@@ -30,61 +30,57 @@ def main(args):
     criterion = torch.nn.MSELoss()
     optimizier = torch.optim.Adam(class_net.parameters(), lr=args.lr, weight_decay=args.weightdecay)
 
-    x_train_pos, x_train_neg = split_pos_neg(x_train, y_train)
+    x_train_pos, x_train_neg, _,_ = split_pos_neg(x_train, y_train)
 
     x_val, y_val = prepare_classification(x_val, y_val)
     x_test, y_test = prepare_classification(x_test, y_test)
     best_val_accuracy = -1
 
-    with open('class_net_hist.txt', mode='w', encoding='utf-8') as outputfile, \
-            open('class_net_test.txt', mode='w', encoding='utf-8') as testoutputfile:
+    loss_sum, accuracy_sum = 0, 0
+    t_init = time()
+    patience = PATIENCE
+    for step in range(1, args.maxiter + 1):
+        class_net.train()
 
-        loss_sum, accuracy_sum = 0, 0
-        t_init = time()
-        patience = PATIENCE
-        for step in range(1, args.maxiter + 1):
-            class_net.train()
+        prevalence = np.random.rand()
 
-            prevalence = np.random.rand()
+        x, y, _ = sample_data(x_train_pos, x_train_neg, prevalence, args.batchsize)
+        x, y = prepare_classification(x, y)
 
-            x, y, _ = sample_data(x_train_pos, x_train_neg, prevalence, args.batchsize)
-            x, y = prepare_classification(x, y)
+        optimizier.zero_grad()
+        yhat = class_net.forward(x)
+        class_loss = criterion(yhat, y)
+        class_loss.backward()
+        optimizier.step()
 
-            optimizier.zero_grad()
-            yhat = class_net.forward(x)
-            class_loss = criterion(yhat, y)
-            class_loss.backward()
-            optimizier.step()
+        loss_sum += class_loss.data[0]
+        accuracy_sum += accuracy(y, yhat)
 
-            loss_sum += class_loss.data[0]
-            accuracy_sum += accuracy(y, yhat)
+        if step % status_every == 0:
+            print('step {}\tloss {:.5f}\t accuracy {:.5f}\t v {:.2f} steps/s'
+                  .format(step, loss_sum / status_every, accuracy_sum / status_every, status_every/(time()-t_init)))
+            loss_sum, accuracy_sum = 0, 0
+            t_init = time()
 
-            if step % status_every == 0:
-                printtee('step {}\tloss {:.5f}\t accuracy {:.5f}\t v {:.2f} steps/s'
-                      .format(step, loss_sum / status_every, accuracy_sum / status_every, status_every/(time()-t_init)), outputfile)
-                loss_sum, accuracy_sum = 0, 0
-                t_init = time()
+        if step % test_every == 0:
+            class_net.eval()
+            y_hat = class_batched_predictions(class_net, x_val)
+            accuracy_val = accuracy(y_val, y_hat)
 
-            if step % test_every == 0:
-                class_net.eval()
-                y_hat = class_batched_predictions(class_net, x_val)
-                accuracy_val = accuracy(y_val, y_hat)
+            y_hat = class_batched_predictions(class_net, x_test)
+            accuracy_test = accuracy(y_test, y_hat)
+            print('ValAcc {:.5f}\tTestAcc {:.5f}[patience {}]'.format(accuracy_val, accuracy_test, patience))
 
-                y_hat = class_batched_predictions(class_net, x_test)
-                accuracy_test = accuracy(y_test, y_hat)
-                printtee('ValAcc {:.5f}\tTestAcc {:.5f}[patience {}]'
-                         .format(accuracy_val, accuracy_test, patience), testoutputfile)
-
-                if accuracy_val > best_val_accuracy:
-                    print('\tsaving model to', args.output)
-                    torch.save(class_net, args.output)
-                    best_val_accuracy=accuracy_val
-                    patience = PATIENCE
-                else:
-                    patience-=1
-                    if patience==0:
-                        print('Early stop after {} loss checks without improvement'.format(PATIENCE))
-                        break
+            if accuracy_val > best_val_accuracy:
+                print('\tsaving model to', args.output)
+                torch.save(class_net, args.output)
+                best_val_accuracy=accuracy_val
+                patience = PATIENCE
+            else:
+                patience-=1
+                if patience==0:
+                    print('Early stop after {} loss checks without improvement'.format(PATIENCE))
+                    break
 
 def parseargs(args):
     parser = argparse.ArgumentParser(description='Learn Classifier',

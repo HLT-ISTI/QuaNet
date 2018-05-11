@@ -27,6 +27,10 @@ def main(args):
     quant_net = torch.load(args.quantmodel)
     quant_net = quant_net.cuda() if use_cuda else quant_net
 
+    model_conf = 'QN'+('-E' if args.use_embeddings else '') + \
+                 ('-SL' if quant_net.stats_in_lin_layers else '') +\
+                 ('-SS' if quant_net.stats_in_sequence else '')
+
     print('creating val_yhat and test_yhat')
     val_yhat = predict(class_net, x_val, args.use_embeddings)  # todo: read use_embeddings from quant_net
     test_yhat = predict(class_net, x_test, args.use_embeddings)  # todo: read use_embeddings from quant_net
@@ -38,7 +42,7 @@ def main(args):
     train_prev = np.mean(y_train)
     test_prev = np.mean(y_test)
 
-    test_samples = 19*100
+    test_samples = (21 if args.include_bounds else 19)*100
 
     classes = 2 #todo: take from model
     input_size = classes if not args.use_embeddings else classes + 100 #todo: take from model
@@ -48,49 +52,58 @@ def main(args):
     test_sample_yhat, test_sample_y, test_sample_prev, test_sample_stats, test_chosen = \
         quantification_uniform_sampling(test_pos_ids, test_neg_ids, test_yhat_pos, test_yhat_neg,
                                         val_tpr, val_fpr, val_ptpr, val_pfpr,
-                                        input_size, test_samples, sample_size=args.samplelength)
+                                        input_size, test_samples, sample_size=args.samplelength, avoid_bounds=not args.include_bounds,
+                                        seed=args.seed)
 
     true_prevs = compute_true_prevalence(test_sample_prev)
 
-    print('Computing classify & count based methods (cc, acc, pcc, apcc) for {} samples of the test set'.format(test_samples))
-    cc_prevs, acc_prevs = compute_classify_count(test_sample_yhat, val_tpr, val_fpr, probabilistic=False)
-    pcc_prevs, apcc_prevs = compute_classify_count(test_sample_yhat, val_ptpr, val_pfpr, probabilistic=True)
-
-    print('Computing SVM_KLD and SVM_Q methods')
-    data_matrix = loadDataset(dataset=args.data, mode='matrix')
-    svm_nkld_prevs = compute_svm(data_matrix, test_chosen, loss='nkld')
-    svm_q_prevs    = compute_svm(data_matrix, test_chosen, loss='q')
-
     quant_net.eval()
     print('Computing net prevalences for {} samples of the test set'.format(test_samples))
-    test_batch_phat = quant_batched_predictions(quant_net, test_sample_yhat, test_sample_stats, batchsize=test_samples//10)
+    test_batch_phat = quant_batched_predictions(quant_net, test_sample_yhat, test_sample_stats,
+                                                batchsize=test_samples // 10)
 
     # prevalence by sampling test -----------------------------------------------------------------------------
     net_prevs = []
     for i in range(test_samples):
-        net_prevs.append(float(test_batch_phat[i]))
+        net_prevs.append(float(test_batch_phat[i, 0]))
 
-    print('Evaluate classify & count based methods with MAE, MSE, MNKLD, and MRAE')
-    methods_prevalences = [cc_prevs, pcc_prevs, acc_prevs, apcc_prevs, svm_nkld_prevs, svm_q_prevs, net_prevs]
+    if not args.net_only:
+        print('Computing classify & count based methods (cc, acc, pcc, apcc) for {} samples of the test set'.format(test_samples))
+        cc_prevs, acc_prevs = compute_classify_count(test_sample_yhat, val_tpr, val_fpr, probabilistic=False)
+        pcc_prevs, apcc_prevs = compute_classify_count(test_sample_yhat, val_ptpr, val_pfpr, probabilistic=True)
+
+        print('Computing SVM_NKLD and SVM_Q methods')
+        data_matrix = loadDataset(dataset=args.data, mode='matrix')
+        svm_nkld_prevs = compute_svm(data_matrix, test_chosen, loss='nkld')
+        svm_q_prevs    = compute_svm(data_matrix, test_chosen, loss='q')
+
+        mehotds_names = ['cc', 'pcc', 'acc', 'apcc', 'svm-nkld', 'svm-q', model_conf]
+        methods_prevalences = [cc_prevs, pcc_prevs, acc_prevs, apcc_prevs, svm_nkld_prevs, svm_q_prevs, net_prevs]
+
+    else:
+        mehotds_names = [model_conf]
+        methods_prevalences = [net_prevs]
+
+    print('Compute MAE, MSE, MNKLD, and MRAE')
     mae_samples = eval_metric(mae, true_prevs, *methods_prevalences)
     mse_samples = eval_metric(mse, true_prevs, *methods_prevalences)
     mnkld_samples = eval_metric(mnkld, true_prevs, *methods_prevalences)
     mrae_samples = eval_metric(mrae, true_prevs, *methods_prevalences)
 
-    print('Samples MAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mae_samples))
-    print('Samples MSE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mse_samples))
-    print('Samples MNKLD:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mnkld_samples))
-    print('Samples MRAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mrae_samples))
+    if not args.net_only:
+        print('Samples MAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mae_samples))
+        print('Samples MSE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mse_samples))
+        print('Samples MNKLD:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mnkld_samples))
+        print('Samples MRAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mrae_samples))
 
     # plots ---------------------------------------------------------------------------------------------------
     methods_prevalences = np.array(methods_prevalences)
-    mehotds_names = ['cc', 'pcc', 'acc', 'apcc', 'svm-nkld', 'svm-q', 'net']
-    plot_corr(true_prevs, methods_prevalences, mehotds_names, savedir=args.plotdir, savename='corr'+args.result_note+'.png',
+    plot_corr(true_prevs, methods_prevalences, mehotds_names, savedir=args.plotdir, savename='corr'+model_conf+args.result_note+'.pdf',
               train_prev=train_prev, test_prev=None) #test_prev)
     # plot_bins(prevs, methods_prevalences, labels, mae, bins=10,
-    #           savedir=args.plotdir, savename='bins_' + mae.__name__ + args.result_note+'.png')
+    #           savedir=args.plotdir, savename='bins_' + mae.__name__ +model_conf+ args.result_note+'.png')
     # plot_bins(prevs, methods_prevalences, labels, mse, bins=10,
-    #           savedir=args.plotdir, savename='bins_' + mse.__name__ + args.result_note+'.png')
+    #           savedir=args.plotdir, savename='bins_' + mse.__name__ +model_conf+ args.result_note+'.png')
 
 
     # load or create the dataframe for the results file
@@ -119,6 +132,8 @@ def parseargs(args):
                         help='Path to the classifier model')
     parser.add_argument('quantmodel',
                         help='Path to the quantifier model')
+    parser.add_argument('seed',
+                        help='random seed to replicate the evaluation samples', type=int)
     parser.add_argument('-v', '--vocabularysize',
                         help='Maximum length of the vocabulary', type=int, default=5000)
     parser.add_argument('-E', '--use-embeddings',
@@ -131,6 +146,11 @@ def parseargs(args):
                         help='Path to the results', type=str, default='../results.txt')
     parser.add_argument('--result-note',
                         help='Adds a note to the results (e.g., "run0")', type=str, default='')
+    parser.add_argument('--include-bounds',
+                        help='Include the bounds 0 and 1 in the sampling. If otherwise, the sampling will be done from'
+                             '0.05 to 0.95', default=False, action='store_true')
+    parser.add_argument('--net-only',
+                        help='Do only append results for the net (skip all baselines and dont plot)', default=False, action='store_true')
 
     return parser.parse_args(args)
 

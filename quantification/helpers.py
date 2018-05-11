@@ -6,11 +6,7 @@ from keras.preprocessing import sequence
 from scipy.sparse import issparse, vstack
 from sklearn.feature_extraction.text import TfidfVectorizer
 from data.rewiews_builder import ReviewsDataset
-
-use_cuda = True
-MAX_SAMPLE_LENGTH=500
-PATIENCE = 20
-SVMPERF_BASE = '/home/moreo/svm-perf-quantification'
+from quantification.constants import *
 
 
 def variable(tensor):
@@ -124,16 +120,16 @@ def accuracy(y_hard_true, y_soft_pred):
 
 
 def classify_and_count(yhat):
-    return (yhat[:, 0] > 0.5).sum() / len(yhat)
+    return (yhat[:,0] > 0.5).sum() / len(yhat)
 
 def probabilistic_classify_and_count(yhat):
-    return yhat[:, 0].sum() / len(yhat)
+    return yhat[:,0].sum() / len(yhat)
 
 def tpr(yhat, y):
-    return ((y * 2 + (yhat[:, 0] > 0.5)) == 3).sum() / y.sum()
+    return ((y * 2 + (yhat[:,0] > 0.5)) == 3).sum() / y.sum()
 
 def fpr(yhat, y):
-    return ((y * 2 + (yhat[:, 0] > 0.5)) == 1).sum() / (y == 0).sum()
+    return ((y * 2 + (yhat[:,0] > 0.5)) == 1).sum() / (y == 0).sum()
 
 def ptpr(yhat, y):
     positives = y.sum()
@@ -240,60 +236,18 @@ def prepare_classification(x, y):
     yvar = variable(torch.FloatTensor(y))
     return xvar, yvar
 
-@DeprecationWarning
-def quantification_batch(yhat_pos, yhat_neg, val_tpr, val_fpr, input_size, batch_size=1000, sample_length=1000):
-    # batch_prevalences = np.random.random(batch_size)*0.8+0.1
-    batch_prevalences = np.random.random(batch_size)
-    #1/20+np.arange(19)*1/20 <-- [0.05, 0.1, 0.15, ... , 0.95]
-
-    batch_y = list()
-    batch_yhat = list()
-    real_prevalences = list()
-    stats = list()
-    for prevalence in batch_prevalences:
-        sample_pos_count = int(sample_length * prevalence)
-        sample_neg_count = sample_length - sample_pos_count
-        real_prevalences.append(sample_pos_count / sample_length)
-
-        if sample_pos_count == sample_length:
-            sample_yhat = choices(yhat_pos, k=sample_pos_count)
-        elif sample_pos_count == 0:
-            sample_yhat = choices(yhat_neg, k=sample_neg_count)
-        else:
-            sample_yhat = np.concatenate((choices(yhat_pos, k=sample_pos_count), choices(yhat_neg, k=sample_neg_count)))
-
-        pos_neg_code = np.array([[1., 0.], [0., 1.]])
-        sample_y = np.repeat(pos_neg_code, repeats=[sample_pos_count, sample_neg_count], axis=0)
-
-        order = np.argsort(sample_yhat[:, 0])
-        sample_yhat = sample_yhat[order]
-        sample_y = sample_y[order]
-
-        cc = classify_and_count(sample_yhat)
-        acc = adjusted_quantification(cc, val_tpr, val_fpr, clip=False)
-        pcc = probabilistic_classify_and_count(sample_yhat)
-        apcc = adjusted_quantification(pcc, val_tpr, val_fpr, clip=False)
-
-        batch_yhat.append(sample_yhat)
-        batch_y.append(sample_y)
-        stats.append([[cc, 1 - cc], [acc, 1 - acc], [pcc, 1 - pcc], [apcc, 1 - apcc], [val_tpr, 1 - val_tpr],
-                      [val_fpr, 1 - val_fpr]])
-
-    stats_var = variable(torch.FloatTensor(stats).view(-1, 6, 2))
-
-    batch_yhat_var = variable(torch.FloatTensor(batch_yhat).view(-1, sample_length, input_size))
-    batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_length, 2))
-    real_prevalences = np.asarray(real_prevalences)
-    batch_p_var = variable(torch.FloatTensor(np.vstack([real_prevalences, 1 - real_prevalences]).transpose()))
-
-    return batch_yhat_var, batch_y_var, batch_p_var, stats_var
 
 def quantification_uniform_sampling(ids_pos, ids_neg, yhat_pos, yhat_neg, val_tpr, val_fpr, val_ptpr, val_pfpr, input_size,
-                                    n_samples=1000, sample_size=1000):
+                                    n_samples, sample_size, avoid_bounds, seed=None):
+    if seed is not None:
+        print('setting seed {}'.format(seed))
+        np.random.seed(seed)
 
-    #batch_prevalences = np.random.random(batch_size)
-    #x_ticks = np.arange(21)*1/20 # [0, 0.05, 0.1, 0.15, ... , 0.95, 1]
-    x_ticks = 1 / 20 + np.arange(19) * 1 / 20 # [0.05, 0.1, 0.15, ... , 0.95]
+    if avoid_bounds:
+        x_ticks = 1 / 20 + np.arange(19) * 1 / 20  # [0.05, 0.1, 0.15, ... , 0.95]
+    else:
+        x_ticks = np.arange(21)*1/20 # [0, 0.05, 0.1, 0.15, ... , 0.95, 1]
+
     batch_prevalences = np.repeat(x_ticks, n_samples / x_ticks.size)
 
     batch_y = list()
@@ -306,23 +260,21 @@ def quantification_uniform_sampling(ids_pos, ids_neg, yhat_pos, yhat_neg, val_tp
         sample_neg_count = sample_size - sample_pos_count
         real_prevalences.append(sample_pos_count / sample_size)
 
-        # if sample_pos_count == sample_size:
-        #     sample_yhat = choices(yhat_pos, k=sample_pos_count)
-        # elif sample_pos_count == 0:
-        #     sample_yhat = choices(yhat_neg, k=sample_neg_count)
-        # else:
-        #     sample_yhat = np.concatenate((choices(yhat_pos, k=sample_pos_count), choices(yhat_neg, k=sample_neg_count)))
-
         ids_pos_chosen, pos_indexes = choices(ids_pos, k=sample_pos_count)
         ids_neg_chosen, neg_indexes = choices(ids_neg, k=sample_neg_count)
-        sample_yhat = np.concatenate((yhat_pos[pos_indexes], yhat_neg[neg_indexes]))
+        if sample_pos_count==0:
+            sample_yhat = yhat_neg[neg_indexes]
+        elif sample_neg_count == 0:
+            sample_yhat = yhat_pos[pos_indexes]
+        else:
+            sample_yhat = np.concatenate((yhat_pos[pos_indexes], yhat_neg[neg_indexes]))
         ids_chosen.append(np.concatenate((ids_pos_chosen, ids_neg_chosen)))
 
-        #pos_neg_code = np.array([[1., 0.], [0., 1.]])
-        pos_neg_code = np.array([1., 0.])
+        pos_neg_code = np.array([[1., 0.], [0., 1.]])
+        #pos_neg_code = np.array([1., 0.])
         sample_y = np.repeat(pos_neg_code, repeats=[sample_pos_count, sample_neg_count], axis=0)
 
-        order = np.argsort(sample_yhat[:, 0])
+        order = np.argsort(sample_yhat[:,0])
         sample_yhat = sample_yhat[order]
         sample_y = sample_y[order]
 
@@ -339,11 +291,11 @@ def quantification_uniform_sampling(ids_pos, ids_neg, yhat_pos, yhat_neg, val_tp
     stats_var = variable(torch.FloatTensor(stats).view(-1, 8, 2))
 
     batch_yhat_var = variable(torch.FloatTensor(batch_yhat).view(-1, sample_size, input_size))
-    #batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_size, 2))
-    batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_size, 1))
+    batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_size, 2))
+    #batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_size, 1))
     real_prevalences = np.asarray(real_prevalences)
-    #batch_p_var = variable(torch.FloatTensor(np.vstack([real_prevalences, 1 - real_prevalences]).transpose()))
-    batch_p_var = variable(torch.FloatTensor(real_prevalences))
+    batch_p_var = variable(torch.FloatTensor(np.vstack([real_prevalences, 1 - real_prevalences]).transpose()))
+    #batch_p_var = variable(torch.FloatTensor(real_prevalences))
 
     ids_chosen = np.vstack(ids_chosen)
     return batch_yhat_var, batch_y_var, batch_p_var, stats_var, ids_chosen
@@ -427,8 +379,8 @@ def adjust_learning_rate(optimizer, iter, each, initial_lr):
 
 
 def compute_true_prevalence(test_batch_p):
-    #prevs = test_batch_p[:, 0].data
-    prevs = test_batch_p.data
+    prevs = test_batch_p[:, 0].data
+    #prevs = test_batch_p.data
     return prevs.cpu().numpy() if use_cuda else prevs.numpy()
 
 def compute_classify_count(test_batch_yhat, val_tpr, val_fpr, probabilistic):
@@ -464,13 +416,5 @@ def compute_svm(data_matrix, test_ids_choices, loss='nkld', error=mse, n_jobs=-1
 
     p_estim = Parallel(verbose=1, n_jobs=n_jobs)\
         (delayed(svm.predict)(Xte[sample_ids],yte[sample_ids]) for sample_ids in test_ids_choices)
-
-    # p_estim = []
-    # for i,sample_ids in enumerate(test_ids_choices):
-    #     print('\rTest: complete {}/{}'.format(i+1,len(test_ids_choices)), end='\n')
-    #     X_sample = Xte[sample_ids]
-    #     y_sample = yte[sample_ids]
-    #     p = svm.predict(X_sample, y_sample)
-    #     p_estim.append(p)
 
     return p_estim

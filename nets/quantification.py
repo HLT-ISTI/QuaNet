@@ -25,7 +25,7 @@ class LSTMQuantificationNet(torch.nn.Module):
         for lin_size in quant_lin_layers_sizes:
             self.set_lins.append(torch.nn.Linear(prev_size, lin_size))
             prev_size = lin_size
-        self.quant_output = torch.nn.Linear(prev_size, 1)
+        self.quant_output = torch.nn.Linear(prev_size, 2)
 
     def init_quant_hidden(self, batch_size):
         directions = 2 if self.bidirectional else 1
@@ -40,7 +40,7 @@ class LSTMQuantificationNet(torch.nn.Module):
 
     def forward(self, x, stats=None):
         # lstm_input = self.classout2hidden(x)
-        if not stats is None and self.stats_in_sequence:
+        if stats is not None and self.stats_in_sequence:
             lstm_input = torch.cat((F.pad(stats,(0,x.size()[-1]-stats.size()[-1])), x),dim=1)
         else:
             lstm_input = x
@@ -54,10 +54,15 @@ class LSTMQuantificationNet(torch.nn.Module):
         for linear in self.set_lins:
             abstracted = F.dropout(F.relu(linear(abstracted)), self.drop_p, self.training)
 
-        #prevalence = F.softmax(self.quant_output(abstracted), dim=-1)
-        prevalence = F.sigmoid(self.quant_output(abstracted))
+        prevalence = F.softmax(self.quant_output(abstracted), dim=-1)
+        prevalence = ((prevalence-0.5)*1.2 + 0.5) # scales the sigmoids so that the net is able to reach either 1 or 0
+        if not self.training:
+            prevalence = torch.clamp(prevalence, 0, 1)
+
+        #prevalence = F.sigmoid(self.quant_output(abstracted))
         # prevalence = self.quant_output(abstracted)
         # if not self.training:
         #     prevalence = torch.clamp(prevalence, 0, 1)
+        #prevalence = prevalence.view(-1)
 
-        return prevalence.view(-1)
+        return prevalence

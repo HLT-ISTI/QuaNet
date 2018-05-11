@@ -15,13 +15,8 @@ def plot_corr(prevalences, methods, labels, maxpoints=None, savedir=None, savena
     __create_dir(savedir,savename)
     plt.clf()
 
-    # order = list(zip(prevalences, *methods))
-    # order.sort()
-    # if maxpoints:
-    #     order = order[::len(order)//maxpoints]
-    # prevalences, *methods = zip(*order)
     x_ticks = np.sort(np.unique(prevalences))
-    #methods = [list(map(np.mean,methods[prevalences==p])) for p in x_ticks]
+
     ave = np.array([[np.mean(method_i[prevalences == p]) for p in x_ticks] for method_i in methods])
     std = np.array([[np.std(method_i[prevalences == p]) for p in x_ticks] for method_i in methods])
 
