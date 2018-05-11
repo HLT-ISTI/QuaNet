@@ -38,7 +38,7 @@ def main(args):
     classes = 2
     input_size = classes if not args.use_embeddings else classes + 100
 
-    quant_net = LSTMQuantificationNet(classes, input_size, args.hiddensize, quant_lstm_layers,
+    quant_net = LSTMQuantificationNet(input_size, args.hiddensize, quant_lstm_layers,
                                       args.linlayers, drop_p=args.dropout,
                                       stats_in_lin_layers=args.stats_layer,
                                       stats_in_sequence=args.stats_lstm)
@@ -54,13 +54,15 @@ def main(args):
 
         train_prev = np.mean(y_train)
 
-        test_samples = 21*100
+        test_samples = 19*100
 
-        val_yhat_pos, val_yhat_neg = split_pos_neg(val_yhat, y_val)
-        test_yhat_pos, test_yhat_neg = split_pos_neg(test_yhat, y_test)
+        val_yhat_pos, val_yhat_neg, val_pos_ids, val_neg_ids = split_pos_neg(val_yhat, y_val)
+        test_yhat_pos, test_yhat_neg, test_pos_ids, test_neg_ids = split_pos_neg(test_yhat, y_test)
 
-        test_sample_yhat, test_sample_y, test_sample_prev, test_sample_stats = \
-            quantification_uniformbatch(test_yhat_pos, test_yhat_neg, val_tpr, val_fpr, input_size, test_samples, sample_length=args.samplelength)
+        test_sample_yhat, test_sample_y, test_sample_prev, test_sample_stats, _ = \
+            quantification_uniform_sampling(test_pos_ids, test_neg_ids, test_yhat_pos, test_yhat_neg,
+                                            val_tpr, val_fpr, val_ptpr, val_pfpr,
+                                            input_size, test_samples, sample_size=args.samplelength)
 
         true_prevs = compute_true_prevalence(test_sample_prev)
 
@@ -86,9 +88,10 @@ def main(args):
             sample_length = min(10 + step // 10, MAX_SAMPLE_LENGTH) if args.incremental else args.samplelength
             adjust_learning_rate(quant_optimizer, step, each=args.maxiter/2, initial_lr=args.lr)
 
-            batch_yhat, batch_y, batch_p, stats = quantification_uniformbatch(val_yhat_pos, val_yhat_neg,
-                                                                       val_tpr, val_fpr, input_size,
-                                                                       args.batchsize, sample_length)
+            batch_yhat, batch_y, batch_p, stats, _ = \
+                quantification_uniform_sampling(val_pos_ids, val_neg_ids, val_yhat_pos, val_yhat_neg,
+                                                val_tpr, val_fpr, val_ptpr, val_pfpr,
+                                                input_size, args.batchsize, sample_length)
             quant_net.train()
             quant_optimizer.zero_grad()
             batch_phat = quant_net.forward(batch_yhat, stats)
@@ -113,15 +116,15 @@ def main(args):
                 test_batch_phat = quant_batched_predictions(quant_net, test_sample_yhat, test_sample_stats, batchsize=args.batchsize)
 
                 # prevalence by sampling test -----------------------------------------------------------------------------
-                net_prevs, anet_prevs = [], []
+                net_prevs = []
                 printmax = -1
                 for i in range(test_samples):
-                    net_prevs.append(float(test_batch_phat[i, 0]))
+                    net_prevs.append(float(test_batch_phat[i]))
 
                     if i < printmax:
                         printtee('\tsampling-test {}/{}:\tp={:.3f}\tcc={:.3f}\tacc={:.3f}\tpcc={:.3f}\tapcc={:.3f}\tnet={:.3f}'
                           .format(i,test_samples,
-                                  test_sample_prev[i, 0].data[0], cc_prevs[i], acc_prevs[i], pcc_prevs[i], apcc_prevs[i], net_prevs[i]),
+                                  test_sample_prev[i].data[0], cc_prevs[i], acc_prevs[i], pcc_prevs[i], apcc_prevs[i], net_prevs[i]),
                                  outputfile)
                     elif i == printmax: printtee('\t...{} omitted'.format(test_samples-i), outputfile)
 

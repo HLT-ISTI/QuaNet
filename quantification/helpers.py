@@ -1,14 +1,16 @@
+import itertools
+import os
 import numpy as np
 import torch
 from keras.preprocessing import sequence
+from scipy.sparse import issparse, vstack
+from sklearn.feature_extraction.text import TfidfVectorizer
 from data.rewiews_builder import ReviewsDataset
-import os
-import itertools
 
 use_cuda = True
 MAX_SAMPLE_LENGTH=500
 PATIENCE = 20
-
+SVMPERF_BASE = '/home/moreo/svm-perf-quantification'
 
 
 def variable(tensor):
@@ -16,7 +18,7 @@ def variable(tensor):
     return var.cuda() if use_cuda else var
 
 
-def loadDataset(dataset, vocabularysize=5000, val_portion = 0.4, max_len = 120, flatten_test=True):
+def loadDataset(dataset, vocabularysize=5000, val_portion = 0.4, max_len = 120, flatten_test=True, mode='sequence'):
     """
     Loads a sentiment dataset (imdb, hp, or kindle) and process it. Documents are represented as sequences of word-ids.
     For hp and kindle, the test set is a list of test-sets corresponding to different years, unless flatten_test is True.
@@ -28,6 +30,7 @@ def loadDataset(dataset, vocabularysize=5000, val_portion = 0.4, max_len = 120, 
     :param val_portion: validation proportion of the development set
     :param max_len: maximum length of words for documents, which will be padded to this value
     :param flatten_test: if True, all test sets are flatten into a single set (ignored for imdb)
+    :param mode: selects 'sequence' for sequence of ids or 'matrix' for a csr_matrix with tfidf
     :return: train/validation/test splits, each as a tuple of input/output of the form (x,y); in case the flatten_test
     is set to Truen, the x and y components are lists of inputs and outputs
     """
@@ -37,10 +40,10 @@ def loadDataset(dataset, vocabularysize=5000, val_portion = 0.4, max_len = 120, 
         from keras.datasets import imdb
         (x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=vocabularysize)
     else:
-        #tr_slots = '3' if dataset=='hp' else '3' #for kindle
         tr_slots = '3'
         data = ReviewsDataset.load(os.path.join('../datasets/build/single',dataset,'SeqSingle'+tr_slots+'S3F.pkl'))
-        data.limit_vocabulary(vocabularysize)
+        if mode=='sequence':
+            data.limit_vocabulary(vocabularysize)
         (x_train, y_train) = (np.array(data.Xtr), data.ytr)
         if flatten_test:
             x_test = np.array(list(itertools.chain.from_iterable(data.Xte)))
@@ -49,27 +52,38 @@ def loadDataset(dataset, vocabularysize=5000, val_portion = 0.4, max_len = 120, 
             x_test = [np.array(Xte_i) for Xte_i in data.Xte]
             y_test = data.yte
 
-    x_train, y_train, x_val, y_val = split_train_validation(x_train, y_train, val_portion)
-    # def mean_(x):
-    #     mean = np.array([len(d) for d in x]).mean()
-    #     std = np.array([len(d) for d in x]).std()
-    #     print(mean,std)
-    # mean_(x_train)
-    # mean_(x_val)
-    # mean_(x_test)
+    if mode == 'matrix':
+        #todo: for kindle and hp we do already have the text versions... load them (though it's equivalent...)
+        def from_id2str(sequences):
+            return np.array([' '.join([str(x) for x in seq_ids]) for seq_ids in sequences])
+        x_train = from_id2str(x_train)
+        x_test = from_id2str(x_test)
+        tfidf_vect = TfidfVectorizer(min_df=5, sublinear_tf=True)  # stop_words='english' ?
+        tfidf_vect.fit(x_train)
 
-    x_train = sequence.pad_sequences(x_train, maxlen=max_len)
-    x_val = sequence.pad_sequences(x_val, maxlen=max_len)
-    if flatten_test:
-        x_test = sequence.pad_sequences(x_test, maxlen=max_len)
+    x_train, y_train, x_val, y_val = split_train_validation(x_train, y_train, val_portion)
+
+    if mode == 'sequence':
+        x_train = sequence.pad_sequences(x_train, maxlen=max_len)
+        x_val = sequence.pad_sequences(x_val, maxlen=max_len)
+        if flatten_test:
+            x_test = sequence.pad_sequences(x_test, maxlen=max_len)
+        else:
+            x_test = [sequence.pad_sequences(Xte_i, maxlen=max_len) for Xte_i in x_test]
     else:
-        x_test = [sequence.pad_sequences(Xte_i, maxlen=max_len) for Xte_i in x_test]
+        x_train = tfidf_vect.transform(x_train)
+        x_val = tfidf_vect.transform(x_val)
+        x_test = tfidf_vect.transform(x_test)
 
     return (x_train, y_train), (x_val, y_val), (x_test, y_test)
 
+
 def choices(values, k):
+    if k == 0:
+        return np.empty(0), np.empty(0)
     replace = True if k>values.shape[0] else False # cannot take more elements than the existing ones if replace=False
-    return values[np.random.choice(values.shape[0], k, replace=replace)]
+    indexes = np.random.choice(values.shape[0], k, replace=replace)
+    return values[indexes], indexes
 
 def get_name(step, info=''):
     filename = info + 'net_' + str(step)
@@ -107,17 +121,6 @@ def accuracy(y_hard_true, y_soft_pred):
     pred = y_soft_pred[:, 0] > 0.5
     truth = y_hard_true[:, 0] > 0.5
     return torch.mean((pred == truth).type(torch.FloatTensor))
-
-def f1(y_hard_true, y_soft_pred):
-    y_hard_true = todata(y_hard_true)
-    y_soft_pred = todata(y_soft_pred)
-    pred = (y_soft_pred[:, 0] > 0.5)
-    truth = (y_hard_true[:, 0] > 0.5)
-    tp = torch.sum(pred[truth == 1])
-    fp = torch.sum(pred[truth != 1])
-    fn = torch.sum(truth[pred != 1])
-    f1 = 2*tp/(2*tp+fp+fn)
-    return f1
 
 
 def classify_and_count(yhat):
@@ -204,24 +207,32 @@ def split_train_validation(x, y, val_portion, shuffle=True):
     return x_train, y_train, x_val, y_val
 
 def split_pos_neg(x,y):
-    return x[y==1], x[y!=1]
+    ids = np.arange(x.shape[0])
+    return x[y==1], x[y!=1], ids[y==1], ids[y!=1]
 
-def sample_data(x_pos, x_neg, prevalence, batch_size):
-    pos_count = int(batch_size * prevalence)
-    neg_count = batch_size - pos_count
-    prevalence = pos_count / batch_size
+def sample_data(x_pos, x_neg, prevalence, sample_size):
+    sparse = issparse(x_pos)
+    pos_count = int(sample_size * prevalence)
+    neg_count = sample_size - pos_count
+    real_prevalence = pos_count / sample_size
 
     sampled_pos = x_pos[np.random.choice(x_pos.shape[0], pos_count)]
     sampled_neg = x_neg[np.random.choice(x_neg.shape[0], neg_count)]
 
-    sampled_x = np.vstack((sampled_pos, sampled_neg))
+    if sparse:
+        sampled_x = vstack((sampled_pos, sampled_neg))
+    else:
+        sampled_x = np.vstack((sampled_pos, sampled_neg))
     sampled_y = np.array([1]*pos_count+[0]*neg_count)
 
     order = np.random.permutation(pos_count + neg_count)
     sampled_x = sampled_x[order]
     sampled_y = sampled_y[order]
 
-    return sampled_x, sampled_y, prevalence
+    if sparse:
+        sampled_x.sort_indices()
+
+    return sampled_x, sampled_y, real_prevalence
 
 def prepare_classification(x, y):
     y = np.vstack((y,1-y)).T
@@ -229,7 +240,7 @@ def prepare_classification(x, y):
     yvar = variable(torch.FloatTensor(y))
     return xvar, yvar
 
-
+@DeprecationWarning
 def quantification_batch(yhat_pos, yhat_neg, val_tpr, val_fpr, input_size, batch_size=1000, sample_length=1000):
     # batch_prevalences = np.random.random(batch_size)*0.8+0.1
     batch_prevalences = np.random.random(batch_size)
@@ -250,6 +261,7 @@ def quantification_batch(yhat_pos, yhat_neg, val_tpr, val_fpr, input_size, batch
             sample_yhat = choices(yhat_neg, k=sample_neg_count)
         else:
             sample_yhat = np.concatenate((choices(yhat_pos, k=sample_pos_count), choices(yhat_neg, k=sample_neg_count)))
+
         pos_neg_code = np.array([[1., 0.], [0., 1.]])
         sample_y = np.repeat(pos_neg_code, repeats=[sample_pos_count, sample_neg_count], axis=0)
 
@@ -276,30 +288,38 @@ def quantification_batch(yhat_pos, yhat_neg, val_tpr, val_fpr, input_size, batch
 
     return batch_yhat_var, batch_y_var, batch_p_var, stats_var
 
-def quantification_uniformbatch(yhat_pos, yhat_neg, val_tpr, val_fpr, input_size, batch_size=1000, sample_length=1000):
-    # batch_prevalences = np.random.random(batch_size)*0.8+0.1
+def quantification_uniform_sampling(ids_pos, ids_neg, yhat_pos, yhat_neg, val_tpr, val_fpr, val_ptpr, val_pfpr, input_size,
+                                    n_samples=1000, sample_size=1000):
+
     #batch_prevalences = np.random.random(batch_size)
     #x_ticks = np.arange(21)*1/20 # [0, 0.05, 0.1, 0.15, ... , 0.95, 1]
     x_ticks = 1 / 20 + np.arange(19) * 1 / 20 # [0.05, 0.1, 0.15, ... , 0.95]
-    batch_prevalences = np.repeat(x_ticks,batch_size/x_ticks.size)
-
+    batch_prevalences = np.repeat(x_ticks, n_samples / x_ticks.size)
 
     batch_y = list()
     batch_yhat = list()
     real_prevalences = list()
     stats = list()
+    ids_chosen = []
     for prevalence in batch_prevalences:
-        sample_pos_count = int(sample_length * prevalence)
-        sample_neg_count = sample_length - sample_pos_count
-        real_prevalences.append(sample_pos_count / sample_length)
+        sample_pos_count = int(sample_size * prevalence)
+        sample_neg_count = sample_size - sample_pos_count
+        real_prevalences.append(sample_pos_count / sample_size)
 
-        if sample_pos_count == sample_length:
-            sample_yhat = choices(yhat_pos, k=sample_pos_count)
-        elif sample_pos_count == 0:
-            sample_yhat = choices(yhat_neg, k=sample_neg_count)
-        else:
-            sample_yhat = np.concatenate((choices(yhat_pos, k=sample_pos_count), choices(yhat_neg, k=sample_neg_count)))
-        pos_neg_code = np.array([[1., 0.], [0., 1.]])
+        # if sample_pos_count == sample_size:
+        #     sample_yhat = choices(yhat_pos, k=sample_pos_count)
+        # elif sample_pos_count == 0:
+        #     sample_yhat = choices(yhat_neg, k=sample_neg_count)
+        # else:
+        #     sample_yhat = np.concatenate((choices(yhat_pos, k=sample_pos_count), choices(yhat_neg, k=sample_neg_count)))
+
+        ids_pos_chosen, pos_indexes = choices(ids_pos, k=sample_pos_count)
+        ids_neg_chosen, neg_indexes = choices(ids_neg, k=sample_neg_count)
+        sample_yhat = np.concatenate((yhat_pos[pos_indexes], yhat_neg[neg_indexes]))
+        ids_chosen.append(np.concatenate((ids_pos_chosen, ids_neg_chosen)))
+
+        #pos_neg_code = np.array([[1., 0.], [0., 1.]])
+        pos_neg_code = np.array([1., 0.])
         sample_y = np.repeat(pos_neg_code, repeats=[sample_pos_count, sample_neg_count], axis=0)
 
         order = np.argsort(sample_yhat[:, 0])
@@ -309,23 +329,26 @@ def quantification_uniformbatch(yhat_pos, yhat_neg, val_tpr, val_fpr, input_size
         cc = classify_and_count(sample_yhat)
         acc = adjusted_quantification(cc, val_tpr, val_fpr, clip=False)
         pcc = probabilistic_classify_and_count(sample_yhat)
-        apcc = adjusted_quantification(pcc, val_tpr, val_fpr, clip=False)
+        apcc = adjusted_quantification(pcc, val_ptpr, val_pfpr, clip=False)
 
         batch_yhat.append(sample_yhat)
         batch_y.append(sample_y)
         stats.append([[cc, 1 - cc], [acc, 1 - acc], [pcc, 1 - pcc], [apcc, 1 - apcc], [val_tpr, 1 - val_tpr],
-                      [val_fpr, 1 - val_fpr]])
+                      [val_fpr, 1 - val_fpr], [val_ptpr, 1 - val_ptpr], [val_pfpr, 1 - val_pfpr]])
 
-    stats_var = variable(torch.FloatTensor(stats).view(-1, 6, 2))
+    stats_var = variable(torch.FloatTensor(stats).view(-1, 8, 2))
 
-    batch_yhat_var = variable(torch.FloatTensor(batch_yhat).view(-1, sample_length, input_size))
-    batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_length, 2))
+    batch_yhat_var = variable(torch.FloatTensor(batch_yhat).view(-1, sample_size, input_size))
+    #batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_size, 2))
+    batch_y_var = variable(torch.FloatTensor(batch_y).view(-1, sample_size, 1))
     real_prevalences = np.asarray(real_prevalences)
-    batch_p_var = variable(torch.FloatTensor(np.vstack([real_prevalences, 1 - real_prevalences]).transpose()))
+    #batch_p_var = variable(torch.FloatTensor(np.vstack([real_prevalences, 1 - real_prevalences]).transpose()))
+    batch_p_var = variable(torch.FloatTensor(real_prevalences))
 
-    return batch_yhat_var, batch_y_var, batch_p_var, stats_var
+    ids_chosen = np.vstack(ids_chosen)
+    return batch_yhat_var, batch_y_var, batch_p_var, stats_var, ids_chosen
 
-
+@DeprecationWarning
 def create_fulltest_batch(yhat, y, val_tpr, val_fpr, input_size, batch_size=1000, sample_length=MAX_SAMPLE_LENGTH):
     ntest = yhat.shape[0]
 
@@ -404,7 +427,8 @@ def adjust_learning_rate(optimizer, iter, each, initial_lr):
 
 
 def compute_true_prevalence(test_batch_p):
-    prevs = test_batch_p[:, 0].data
+    #prevs = test_batch_p[:, 0].data
+    prevs = test_batch_p.data
     return prevs.cpu().numpy() if use_cuda else prevs.numpy()
 
 def compute_classify_count(test_batch_yhat, val_tpr, val_fpr, probabilistic):
@@ -420,3 +444,33 @@ def compute_classify_count(test_batch_yhat, val_tpr, val_fpr, probabilistic):
 
     return prevs_hat, adjusted_prevs_hat
 
+
+def compute_svm(data_matrix, test_ids_choices, loss='nkld', error=mse, n_jobs=-1):
+    from svmperf_wrap import SVMperfQuantifier
+    from sklearn.externals.joblib import Parallel, delayed
+
+    print('\tSVM-'+loss)
+
+    (Xtr, ytr), (Xva, yva), (Xte, yte) = data_matrix
+
+    svm = SVMperfQuantifier(svmperf_base=SVMPERF_BASE, loss=loss, verbose=False)
+
+    svm.optim(Xtr, ytr, Xva, yva,
+              range_C=[1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3],
+              sample_size=MAX_SAMPLE_LENGTH,
+              n_samples=100, error=error)
+
+    svm.fit(Xtr, ytr)
+
+    p_estim = Parallel(verbose=1, n_jobs=n_jobs)\
+        (delayed(svm.predict)(Xte[sample_ids],yte[sample_ids]) for sample_ids in test_ids_choices)
+
+    # p_estim = []
+    # for i,sample_ids in enumerate(test_ids_choices):
+    #     print('\rTest: complete {}/{}'.format(i+1,len(test_ids_choices)), end='\n')
+    #     X_sample = Xte[sample_ids]
+    #     y_sample = yte[sample_ids]
+    #     p = svm.predict(X_sample, y_sample)
+    #     p_estim.append(p)
+
+    return p_estim

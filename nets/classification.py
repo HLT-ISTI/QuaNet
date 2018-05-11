@@ -13,7 +13,7 @@ class LSTMTextClassificationNet(torch.nn.Module):
         self.dropout = dropout
 
         self.embedding = torch.nn.Embedding(vocabulary_size, embedding_size)
-        self.class_lstm = torch.nn.LSTM(embedding_size, class_lstm_hidden_size, class_lstm_layers)
+        self.class_lstm = torch.nn.LSTM(embedding_size, class_lstm_hidden_size, class_lstm_layers, dropout=self.dropout)
         prev_size = class_lstm_hidden_size
         self.class_lins = torch.nn.ModuleList()
         for lin_size in class_lin_layers_sizes:

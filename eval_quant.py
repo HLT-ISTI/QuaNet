@@ -43,16 +43,23 @@ def main(args):
     classes = 2 #todo: take from model
     input_size = classes if not args.use_embeddings else classes + 100 #todo: take from model
 
-    test_yhat_pos, test_yhat_neg = split_pos_neg(test_yhat, y_test)
+    test_yhat_pos, test_yhat_neg, test_pos_ids, test_neg_ids = split_pos_neg(test_yhat, y_test)
 
-    test_sample_yhat, test_sample_y, test_sample_prev, test_sample_stats = \
-        quantification_uniformbatch(test_yhat_pos, test_yhat_neg, val_tpr, val_fpr, input_size, test_samples, sample_length=args.samplelength)
+    test_sample_yhat, test_sample_y, test_sample_prev, test_sample_stats, test_chosen = \
+        quantification_uniform_sampling(test_pos_ids, test_neg_ids, test_yhat_pos, test_yhat_neg,
+                                        val_tpr, val_fpr, val_ptpr, val_pfpr,
+                                        input_size, test_samples, sample_size=args.samplelength)
 
     true_prevs = compute_true_prevalence(test_sample_prev)
 
     print('Computing classify & count based methods (cc, acc, pcc, apcc) for {} samples of the test set'.format(test_samples))
     cc_prevs, acc_prevs = compute_classify_count(test_sample_yhat, val_tpr, val_fpr, probabilistic=False)
     pcc_prevs, apcc_prevs = compute_classify_count(test_sample_yhat, val_ptpr, val_pfpr, probabilistic=True)
+
+    print('Computing SVM_KLD and SVM_Q methods')
+    data_matrix = loadDataset(dataset=args.data, mode='matrix')
+    svm_nkld_prevs = compute_svm(data_matrix, test_chosen, loss='nkld')
+    svm_q_prevs    = compute_svm(data_matrix, test_chosen, loss='q')
 
     quant_net.eval()
     print('Computing net prevalences for {} samples of the test set'.format(test_samples))
@@ -61,29 +68,28 @@ def main(args):
     # prevalence by sampling test -----------------------------------------------------------------------------
     net_prevs = []
     for i in range(test_samples):
-        net_prevs.append(float(test_batch_phat[i, 0]))
+        net_prevs.append(float(test_batch_phat[i]))
 
     print('Evaluate classify & count based methods with MAE, MSE, MNKLD, and MRAE')
-    methods_prevalences = [cc_prevs, pcc_prevs, acc_prevs, apcc_prevs, net_prevs]
+    methods_prevalences = [cc_prevs, pcc_prevs, acc_prevs, apcc_prevs, svm_nkld_prevs, svm_q_prevs, net_prevs]
     mae_samples = eval_metric(mae, true_prevs, *methods_prevalences)
     mse_samples = eval_metric(mse, true_prevs, *methods_prevalences)
     mnkld_samples = eval_metric(mnkld, true_prevs, *methods_prevalences)
     mrae_samples = eval_metric(mrae, true_prevs, *methods_prevalences)
 
-
-    print('Samples MAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} net={:.5f}'.format(*mae_samples))
-    print('Samples MSE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} net={:.5f}'.format(*mse_samples))
-    print('Samples MNKLD:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} net={:.5f}'.format(*mnkld_samples))
-    print('Samples MRAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} net={:.5f}'.format(*mrae_samples))
+    print('Samples MAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mae_samples))
+    print('Samples MSE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mse_samples))
+    print('Samples MNKLD:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mnkld_samples))
+    print('Samples MRAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mrae_samples))
 
     # plots ---------------------------------------------------------------------------------------------------
-    methods = np.array([cc_prevs, acc_prevs, pcc_prevs, apcc_prevs, net_prevs])
-    labels = ['cc', 'acc', 'pcc', 'apcc', 'net']
-    plot_corr(true_prevs, methods, labels, savedir=args.plotdir, savename='corr'+args.result_note+'.png',
+    methods_prevalences = np.array(methods_prevalences)
+    mehotds_names = ['cc', 'pcc', 'acc', 'apcc', 'svm-nkld', 'svm-q', 'net']
+    plot_corr(true_prevs, methods_prevalences, mehotds_names, savedir=args.plotdir, savename='corr'+args.result_note+'.png',
               train_prev=train_prev, test_prev=None) #test_prev)
-    # plot_bins(prevs, methods, labels, mae, bins=10,
+    # plot_bins(prevs, methods_prevalences, labels, mae, bins=10,
     #           savedir=args.plotdir, savename='bins_' + mae.__name__ + args.result_note+'.png')
-    # plot_bins(prevs, methods, labels, mse, bins=10,
+    # plot_bins(prevs, methods_prevalences, labels, mse, bins=10,
     #           savedir=args.plotdir, savename='bins_' + mse.__name__ + args.result_note+'.png')
 
 
@@ -95,7 +101,7 @@ def main(args):
 
     # fill in the scores for each method and metric
     for metric_name, scores in zip(['mae','mse','mnkld','mrae'],[mae_samples,mse_samples,mnkld_samples,mrae_samples]):
-        for method_position, method_name in enumerate(['cc', 'pcc', 'acc', 'apcc', 'net']):
+        for method_position, method_name in enumerate(mehotds_names):
             df.loc[len(df)] = [method_name, metric_name, scores[method_position], 'sample', args.data, args.result_note]
 
     create_if_not_exists(os.path.dirname(args.results))

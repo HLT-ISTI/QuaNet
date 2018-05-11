@@ -3,7 +3,7 @@ import torch.nn.functional as F
 
 
 class LSTMQuantificationNet(torch.nn.Module):
-    def __init__(self, classes, inputsize, quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes, bidirectional=True,
+    def __init__(self, inputsize, quant_lstm_hidden_size, quant_lstm_layers, quant_lin_layers_sizes, bidirectional=True,
                  stats_in_sequence=False, stats_in_lin_layers=False, drop_p=0.5):
         super().__init__()
 
@@ -17,15 +17,15 @@ class LSTMQuantificationNet(torch.nn.Module):
         # self.classout2hidden = torch.nn.Linear(classes, self.quant_lstm_hidden_size)
         # self.quant_lstm = torch.nn.LSTM(quant_lstm_hidden_size, quant_lstm_hidden_size, quant_lstm_layers)
         self.bidirectional = bidirectional
-        self.quant_lstm = torch.nn.LSTM(inputsize, quant_lstm_hidden_size, quant_lstm_layers, bidirectional=bidirectional)
+        self.quant_lstm = torch.nn.LSTM(inputsize, quant_lstm_hidden_size, quant_lstm_layers, bidirectional=bidirectional, dropout=self.drop_p)
         prev_size = self.quant_lstm_hidden_size * (2 if bidirectional else 1)
-        stats_size = ((6 * 2) if stats_in_lin_layers else 0)  # number of statistics used alongside the last dense layer
+        stats_size = ((8 * 2) if stats_in_lin_layers else 0)  # number of statistics used alongside the last dense layer
         prev_size += stats_size
         self.set_lins = torch.nn.ModuleList()
         for lin_size in quant_lin_layers_sizes:
             self.set_lins.append(torch.nn.Linear(prev_size, lin_size))
             prev_size = lin_size
-        self.quant_output = torch.nn.Linear(prev_size, classes)
+        self.quant_output = torch.nn.Linear(prev_size, 1)
 
     def init_quant_hidden(self, batch_size):
         directions = 2 if self.bidirectional else 1
@@ -54,10 +54,10 @@ class LSTMQuantificationNet(torch.nn.Module):
         for linear in self.set_lins:
             abstracted = F.dropout(F.relu(linear(abstracted)), self.drop_p, self.training)
 
-
-        quant_output = F.softmax(self.quant_output(abstracted), dim=1)
-        # quant_output = self.quant_output(abstracted)
+        #prevalence = F.softmax(self.quant_output(abstracted), dim=-1)
+        prevalence = F.sigmoid(self.quant_output(abstracted))
+        # prevalence = self.quant_output(abstracted)
         # if not self.training:
-        #     quant_output = torch.clamp(quant_output, 0, 1)
+        #     prevalence = torch.clamp(prevalence, 0, 1)
 
-        return quant_output
+        return prevalence.view(-1)
