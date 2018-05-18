@@ -1,8 +1,10 @@
 import argparse
 from time import time
-from nets.classification import LSTMTextClassificationNet
+
 from quantification.helpers import *
+from quantification.nets.classification import LSTMTextClassificationNet
 from util.helpers import *
+
 
 def main(args):
     args = parseargs(args)

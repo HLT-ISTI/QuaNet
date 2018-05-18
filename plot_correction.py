@@ -10,29 +10,32 @@ def __create_dir(savedir,savename):
         if not os.path.exists(savedir):
             os.makedirs(savedir)
 
-def plot_corr(prevalences, methods, labels, maxpoints=None, savedir=None, savename=None, train_prev=None, test_prev=None):
+def plot_corr(prevalences, methods, labels, maxpoints=None, savedir=None, savename=None, train_prev=None, test_prev=None, title='correction methods'):
     assert len(methods) == len(labels), 'label lenghts mismatch'
     __create_dir(savedir,savename)
-    plt.clf()
+#    plt.clf()
 
     x_ticks = np.sort(np.unique(prevalences))
 
     ave = np.array([[np.mean(method_i[prevalences == p]) for p in x_ticks] for method_i in methods])
     std = np.array([[np.std(method_i[prevalences == p]) for p in x_ticks] for method_i in methods])
+    markers = ['s', 'o', 'v', '^', 'd', '<', '>', 'p']
+    labels_mod = {'cc':'CC', 'acc':'ACC', 'pcc':'PA', 'apcc':'SPA','QN-E-SL':'QuaNet'}
 
     fig, ax = plt.subplots()
     ax.set_aspect('equal')
     ax.grid()
     ax.plot([0,1], [0,1], '--k', label='ideal', zorder=1)
     for i,method in enumerate(ave):
-        ax.errorbar(x_ticks, method, fmt='-o', label=labels[i], markersize=3, zorder=2)
+        label = labels_mod[labels[i]] if labels[i] in labels_mod else labels[i]
+        ax.errorbar(x_ticks, method, fmt='-', marker=markers[i%len(markers)], label=label, markersize=3, zorder=2)
         ax.fill_between(x_ticks, method-std[i], method+std[i], alpha=0.25)
     if train_prev is not None:
         ax.scatter(train_prev, train_prev, c='c', label='tr-prev', linewidth=2, edgecolor='k', s=100, zorder=3)
     if test_prev is not None:
         ax.scatter(test_prev, test_prev, c='y', label='te-prev', linewidth=2, edgecolor='k', s=100, zorder=3)
 
-    ax.set(xlabel='prevalence', ylabel='estimated prevalence', title='correction methods')
+    ax.set(xlabel='true prevalence', ylabel='estimated prevalence', title=title)
     ax.set_ylim(0, 1)
     ax.set_xlim(0, 1)
 

@@ -1,7 +1,8 @@
-import itertools
-import os
 import numpy as np
 import torch
+import itertools
+import os
+from sklearn.externals.joblib import Parallel, delayed
 from keras.preprocessing import sequence
 from scipy.sparse import issparse, vstack
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -14,7 +15,8 @@ def variable(tensor):
     return var.cuda() if use_cuda else var
 
 
-def loadDataset(dataset, vocabularysize=5000, val_portion = 0.4, max_len = 120, flatten_test=True, mode='sequence'):
+def loadDataset(dataset, vocabularysize=5000, val_portion = 0.4, max_len = 120, flatten_test=True, mode='sequence',
+                datapath='../datasets/build/single'):
     """
     Loads a sentiment dataset (imdb, hp, or kindle) and process it. Documents are represented as sequences of word-ids.
     For hp and kindle, the test set is a list of test-sets corresponding to different years, unless flatten_test is True.
@@ -37,7 +39,7 @@ def loadDataset(dataset, vocabularysize=5000, val_portion = 0.4, max_len = 120, 
         (x_train, y_train), (x_test, y_test) = imdb.load_data(num_words=vocabularysize)
     else:
         tr_slots = '3'
-        data = ReviewsDataset.load(os.path.join('../datasets/build/single',dataset,'SeqSingle'+tr_slots+'S3F.pkl'))
+        data = ReviewsDataset.load(os.path.join(datapath,dataset,'SeqSingle'+tr_slots+'S3F.pkl'))
         if mode=='sequence':
             data.limit_vocabulary(vocabularysize)
         (x_train, y_train) = (np.array(data.Xtr), data.ytr)
@@ -206,6 +208,7 @@ def split_pos_neg(x,y):
     ids = np.arange(x.shape[0])
     return x[y==1], x[y!=1], ids[y==1], ids[y!=1]
 
+
 def sample_data(x_pos, x_neg, prevalence, sample_size):
     sparse = issparse(x_pos)
     pos_count = int(sample_size * prevalence)
@@ -236,19 +239,22 @@ def prepare_classification(x, y):
     yvar = variable(torch.FloatTensor(y))
     return xvar, yvar
 
+def define_prev_range(with_limits):
+    if with_limits:
+        prevs_range = np.arange(21) * 1 / 20
+        prevs_range[0] += 0.01
+        prevs_range[-1] -= 0.01
+    else:
+        prevs_range = 1 / 20 + np.arange(19) * 1 / 20  # [0.05, 0.1, 0.15, ... , 0.95]
+    return prevs_range
 
 def quantification_uniform_sampling(ids_pos, ids_neg, yhat_pos, yhat_neg, val_tpr, val_fpr, val_ptpr, val_pfpr, input_size,
-                                    n_samples, sample_size, avoid_bounds, seed=None):
+                                    n_samples, sample_size, prevs_range, seed=None):
     if seed is not None:
         print('setting seed {}'.format(seed))
         np.random.seed(seed)
 
-    if avoid_bounds:
-        x_ticks = 1 / 20 + np.arange(19) * 1 / 20  # [0.05, 0.1, 0.15, ... , 0.95]
-    else:
-        x_ticks = np.arange(21)*1/20 # [0, 0.05, 0.1, 0.15, ... , 0.95, 1]
-
-    batch_prevalences = np.repeat(x_ticks, n_samples / x_ticks.size)
+    batch_prevalences = np.repeat(prevs_range, n_samples / prevs_range.size)
 
     batch_y = list()
     batch_yhat = list()
@@ -297,7 +303,7 @@ def quantification_uniform_sampling(ids_pos, ids_neg, yhat_pos, yhat_neg, val_tp
     batch_p_var = variable(torch.FloatTensor(np.vstack([real_prevalences, 1 - real_prevalences]).transpose()))
     #batch_p_var = variable(torch.FloatTensor(real_prevalences))
 
-    ids_chosen = np.vstack(ids_chosen)
+    ids_chosen = np.vstack(ids_chosen).astype(int)
     return batch_yhat_var, batch_y_var, batch_p_var, stats_var, ids_chosen
 
 @DeprecationWarning
@@ -397,24 +403,20 @@ def compute_classify_count(test_batch_yhat, val_tpr, val_fpr, probabilistic):
     return prevs_hat, adjusted_prevs_hat
 
 
-def compute_svm(data_matrix, test_ids_choices, loss='nkld', error=mse, n_jobs=-1):
-    from svmperf_wrap import SVMperfQuantifier
-    from sklearn.externals.joblib import Parallel, delayed
-
-    print('\tSVM-'+loss)
+def compute_baseline(Q, data_matrix, test_ids_choices, prev_range, optim_params, error=mse, n_jobs=-1):
+    print('\tComputing baseline-'+Q.__name__)
 
     (Xtr, ytr), (Xva, yva), (Xte, yte) = data_matrix
-
-    svm = SVMperfQuantifier(svmperf_base=SVMPERF_BASE, loss=loss, verbose=False)
-
-    svm.optim(Xtr, ytr, Xva, yva,
-              range_C=[1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3],
-              sample_size=MAX_SAMPLE_LENGTH,
-              n_samples=100, error=error)
-
-    svm.fit(Xtr, ytr)
+    print('\toptimizing in param space {}'.format(optim_params))
+    Q.optim(Xtr, ytr, Xva, yva, error,
+            n_samples=100,
+            sample_size=MAX_SAMPLE_LENGTH,
+            prev_range=prev_range,
+            parameters=optim_params,
+            refit=True)
 
     p_estim = Parallel(verbose=1, n_jobs=n_jobs)\
-        (delayed(svm.predict)(Xte[sample_ids],yte[sample_ids]) for sample_ids in test_ids_choices)
+        (delayed(Q.predict)(Xte[sample_ids],yte[sample_ids]) for sample_ids in test_ids_choices)
 
     return p_estim
+

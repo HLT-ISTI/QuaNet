@@ -8,17 +8,18 @@ pd.set_option('display.max_columns', 500)
 pd.set_option('display.width', 1000)
 
 
-df = pd.read_csv('../../results/eval_results_bound.txt', index_col=0)
+df = pd.read_csv('../../results/formanbounds.txt', index_col=0)
+#df = pd.read_csv('eval_results_bound.txt',index_col=0)
 
 mu_std_cnt = lambda scores: (np.mean(scores),np.std(scores),[scores.tolist()])
 #getall = lambda scores: [scores.tolist()]
 
-piv = pd.pivot_table(df, values=['score'],index=['method'],columns=['metric','dataset'], aggfunc=mu_std_cnt)
+piv = pd.pivot_table(df, values=['score'],index=['method'],columns=['dataset','metric'], aggfunc=mu_std_cnt)
+#piv = pd.pivot_table(df, values=['score'],index=['metric','method'],columns=['dataset'], aggfunc=mu_std_cnt)
 
 #statistical significance by column
 stat_sig_test = ttest_rel
 def pval_interpretation(pval):
-    print(pval)
     if pval < 0.005:
         return 0 # are distinguishable at a very high conf level
     elif pval < 0.05:
@@ -28,7 +29,8 @@ def pval_interpretation(pval):
 
 def result2str(mu,std,dags,isbest,precision=4):
     dags = '\dag'*dags
-    strval = '{:.3f} $\pm$ {:.3f}{}'.format(mu,std,dags)
+    strval = '{:.3f} $\pm$ {:.2e}{}'.format(mu,std,dags)
+    #strval = '{:.4f}{}'.format(mu,  dags)
     if isbest:
         strval = '\\textbf{'+strval+'}'
     return strval
@@ -45,25 +47,39 @@ for col in piv.columns:
     # all others are compared against the best one with a statistical test
     n_methods = len(means)
     for pos in range(n_methods):
+        scores_best = results_lists[best_pos][0]
         if pos != best_pos:
-            _,pval=stat_sig_test(results_lists[pos][0], results_lists[best_pos][0])
-            n_dags = pval_interpretation(pval)
+            scores_i = results_lists[pos][0]
+            if len(scores_i) == len(scores_best):
+                _,pval=stat_sig_test(scores_i, scores_best)
+                n_dags = pval_interpretation(pval)
+            else:
+                n_dags=0
         else:
             n_dags = 0
         col_index.iloc[pos] = result2str(means[pos],stds[pos],n_dags,isbest=(pos==best_pos or means[pos]==means[best_pos]))
 
 
 #reorder
-piv = piv.reindex_axis(['cc','pcc','acc','apcc','net'], axis='rows')
-piv = piv.reindex_axis(['mae','mse','mnkld','mrae'], axis='columns', level='metric')
-piv = piv.reindex_axis(['hp','kindle','imdb'], axis='columns', level='dataset')
+piv = piv.reindex_axis(['cc','pcc','acc','apcc','svm-nkld','svm-q','QN','QN-E-SL'], axis='rows')
+piv = piv.reindex_axis(['mae','mrae','mnkld'], axis='columns', level='metric')
+piv = piv.reindex_axis(['imdb','hp','kindle'], axis='columns', level='dataset')
+
+# nonefun = lambda x:x
+#
+# pivfinal = pd.pivot_table(df, values=['score'],index=['method'],columns=['metric','dataset'], aggfunc=nonefun)
 
 #postprocessing
 latex = piv.to_latex(escape=False)
-latex = latex.replace('hp','HP').replace('kindle','Kindle').replace('imdb','IMDB')
+latex = latex.replace('hp','HP').replace('kindle','Kindle').replace('imdb','IMDB') \
+    .replace('0.', '.')\
+    .replace('\\toprule', '\\hline').replace('\midrule','\\hline').replace('\\bottomrule','\\hline')
 latex = '\\begin{table}\n' \
+        + '\\resizebox{\\textwidth}{!} {\n' \
         + latex \
+        + '\n}\n' \
         + '\n\caption{}' \
+        + '\n\label{tab:results}' \
         + '\n\\end{table}'
 print(latex)
 

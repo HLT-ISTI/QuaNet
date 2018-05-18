@@ -1,10 +1,13 @@
-import argparse,ntpath
-from time import time
-from nets.quantification import LSTMQuantificationNet
-from plot_correction import plot_corr, plot_loss, plot_bins
+import argparse
+import pandas as pd
+from sklearn.naive_bayes import MultinomialNB
+
+from plot_correction import plot_corr
+from quantification.baselines import EM_Quantifier, SVMperfQuantifier
 from quantification.helpers import *
 from util.helpers import *
-import pandas as pd
+
+
 # from inntt import *
 
 def eval_metric(metric, prevs, *methods):
@@ -49,10 +52,13 @@ def main(args):
 
     test_yhat_pos, test_yhat_neg, test_pos_ids, test_neg_ids = split_pos_neg(test_yhat, y_test)
 
+    prevs_range = define_prev_range(args.include_bounds)
+    print(prevs_range)
+
     test_sample_yhat, test_sample_y, test_sample_prev, test_sample_stats, test_chosen = \
         quantification_uniform_sampling(test_pos_ids, test_neg_ids, test_yhat_pos, test_yhat_neg,
                                         val_tpr, val_fpr, val_ptpr, val_pfpr,
-                                        input_size, test_samples, sample_size=args.samplelength, avoid_bounds=not args.include_bounds,
+                                        input_size, test_samples, sample_size=args.samplelength, prevs_range=prevs_range,
                                         seed=args.seed)
 
     true_prevs = compute_true_prevalence(test_sample_prev)
@@ -72,13 +78,23 @@ def main(args):
         cc_prevs, acc_prevs = compute_classify_count(test_sample_yhat, val_tpr, val_fpr, probabilistic=False)
         pcc_prevs, apcc_prevs = compute_classify_count(test_sample_yhat, val_ptpr, val_pfpr, probabilistic=True)
 
-        print('Computing SVM_NKLD and SVM_Q methods')
+        print('Computing E-M, SVM_NKLD and SVM_Q methods')
         data_matrix = loadDataset(dataset=args.data, mode='matrix')
-        svm_nkld_prevs = compute_svm(data_matrix, test_chosen, loss='nkld')
-        svm_q_prevs    = compute_svm(data_matrix, test_chosen, loss='q')
 
-        mehotds_names = ['cc', 'pcc', 'acc', 'apcc', 'svm-nkld', 'svm-q', model_conf]
-        methods_prevalences = [cc_prevs, pcc_prevs, acc_prevs, apcc_prevs, svm_nkld_prevs, svm_q_prevs, net_prevs]
+        optim_params = {'alpha': [1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5], 'fit_prior':[True,False]}
+        EMq = EM_Quantifier(probabilistic_learner=MultinomialNB, alpha=1)
+        EM_prevs = compute_baseline(EMq, data_matrix, test_chosen, prevs_range, optim_params)
+
+        optim_params={'C':[1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4]}
+        SVMnkld=SVMperfQuantifier(svmperf_base=SVMPERF_BASE, loss='nkld', verbose=False)
+        svm_nkld_prevs = compute_baseline(SVMnkld, data_matrix, test_chosen, prevs_range, optim_params)
+
+        SVMq = SVMperfQuantifier(svmperf_base=SVMPERF_BASE, loss='q', verbose=False)
+        svm_q_prevs    = compute_baseline(SVMq, data_matrix, test_chosen, prevs_range, optim_params)
+
+
+        mehotds_names = ['cc', 'pcc', 'acc', 'apcc', 'em', 'svm-nkld', 'svm-q', model_conf]
+        methods_prevalences = [cc_prevs, pcc_prevs, acc_prevs, apcc_prevs, EM_prevs, svm_nkld_prevs, svm_q_prevs, net_prevs]
 
     else:
         mehotds_names = [model_conf]
@@ -91,15 +107,16 @@ def main(args):
     mrae_samples = eval_metric(mrae, true_prevs, *methods_prevalences)
 
     if not args.net_only:
-        print('Samples MAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mae_samples))
-        print('Samples MSE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mse_samples))
-        print('Samples MNKLD:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mnkld_samples))
-        print('Samples MRAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mrae_samples))
+        print('Samples MAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} em={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mae_samples))
+        print('Samples MSE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} em={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mse_samples))
+        print('Samples MNKLD:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} em={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mnkld_samples))
+        print('Samples MRAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} em={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mrae_samples))
 
     # plots ---------------------------------------------------------------------------------------------------
     methods_prevalences = np.array(methods_prevalences)
+    title = args.data.upper() if args.data != 'kindle' else args.data.title()
     plot_corr(true_prevs, methods_prevalences, mehotds_names, savedir=args.plotdir, savename='corr'+model_conf+args.result_note+'.pdf',
-              train_prev=train_prev, test_prev=None) #test_prev)
+              train_prev=train_prev, test_prev=None, title=title) #test_prev)
     # plot_bins(prevs, methods_prevalences, labels, mae, bins=10,
     #           savedir=args.plotdir, savename='bins_' + mae.__name__ +model_conf+ args.result_note+'.png')
     # plot_bins(prevs, methods_prevalences, labels, mse, bins=10,

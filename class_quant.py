@@ -5,9 +5,9 @@ import numpy as np
 import torch
 from keras.datasets import imdb
 from keras.preprocessing import sequence
-
 from nets.classification import LSTMTextClassificationNet
-from nets.quantification import LSTMQuantificationNet
+
+from quantification.nets.quantification import LSTMQuantificationNet
 
 max_features = 5000
 max_len = 120

@@ -61,6 +61,7 @@ def inspect_prevalences(dates, reviews, sentiment_labels=[0, 1], printfile=None)
 
 
 class ReviewsDataset:
+
     def __init__(self,Xtr,ytr,Xte,yte,vocabulary,classes):
         self.Xtr = Xtr
         self.ytr = ytr

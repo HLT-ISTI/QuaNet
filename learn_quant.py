@@ -1,9 +1,12 @@
-import argparse,ntpath
+import argparse
 from time import time
-from nets.quantification import LSTMQuantificationNet
-from plot_correction import plot_corr, plot_loss, plot_bins
+
+from plot_correction import plot_corr, plot_loss
 from quantification.helpers import *
+from quantification.nets.quantification import LSTMQuantificationNet
 from util.helpers import *
+
+
 # from inntt import *
 
 
@@ -52,6 +55,7 @@ def main(args):
     train_prev = np.mean(y_train)
 
     test_samples = (21 if args.include_bounds else 19) * 100 #todo: clarify
+    prevs_range = define_prev_range(args.include_bounds)
 
     val_yhat_pos, val_yhat_neg, val_pos_ids, val_neg_ids = split_pos_neg(val_yhat, y_val)
     test_yhat_pos, test_yhat_neg, test_pos_ids, test_neg_ids = split_pos_neg(test_yhat, y_test)
@@ -59,7 +63,7 @@ def main(args):
     test_sample_yhat, test_sample_y, test_sample_prev, test_sample_stats, _ = \
         quantification_uniform_sampling(test_pos_ids, test_neg_ids, test_yhat_pos, test_yhat_neg,
                                         val_tpr, val_fpr, val_ptpr, val_pfpr,
-                                        input_size, test_samples, args.samplelength, avoid_bounds=not args.include_bounds)
+                                        input_size, test_samples, args.samplelength, prevs_range=prevs_range)
 
     true_prevs = compute_true_prevalence(test_sample_prev)
 
@@ -89,7 +93,7 @@ def main(args):
             quantification_uniform_sampling(val_pos_ids, val_neg_ids, val_yhat_pos, val_yhat_neg,
                                             val_tpr, val_fpr, val_ptpr, val_pfpr,
                                             input_size, args.batchsize, sample_length,
-                                            avoid_bounds = not args.include_bounds)
+                                            avoid_bounds = prevs_range)
         quant_net.train()
         optimizer.zero_grad()
         batch_phat = quant_net.forward(batch_yhat, stats)
@@ -134,7 +138,8 @@ def main(args):
             # plots ---------------------------------------------------------------------------------------------------
             methods = np.array([cc_prevs, acc_prevs, pcc_prevs, apcc_prevs, net_prevs])
             labels = ['cc', 'acc', 'pcc', 'apcc', 'net']
-            plot_corr(true_prevs, methods, labels, savedir=args.plotdir, savename='corr.png', train_prev=train_prev, test_prev=None)#test_prev)
+            title=args.data.upper() if args.data!='kindle' else args.data.title()
+            plot_corr(true_prevs, methods, labels, savedir=args.plotdir, savename='corr.png', train_prev=train_prev, test_prev=None, title=title)#test_prev)
             plot_loss(range(step), losses, savedir=args.plotdir, savename='loss.png')
 
             if best_mse is None or mse_net_sample < best_mse:
