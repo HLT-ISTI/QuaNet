@@ -74,27 +74,16 @@ def main(args):
         net_prevs.append(float(test_batch_phat[i, 0]))
 
     if not args.net_only:
-        print('Computing classify & count based methods (cc, acc, pcc, apcc) for {} samples of the test set'.format(test_samples))
-        cc_prevs, acc_prevs = compute_classify_count(test_sample_yhat, val_tpr, val_fpr, probabilistic=False)
-        pcc_prevs, apcc_prevs = compute_classify_count(test_sample_yhat, val_ptpr, val_pfpr, probabilistic=True)
-
         print('Computing E-M, SVM_NKLD and SVM_Q methods')
         data_matrix = loadDataset(dataset=args.data, mode='matrix')
 
-        optim_params = {'alpha': [1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5], 'fit_prior': [True, False]}
+        optim_params = {'alpha': [1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5], 'fit_prior':[True,False]}
+        #optim_params = {'alpha': [0.1], 'fit_prior': [False]}
         EMq = EM_Quantifier(probabilistic_learner=MultinomialNB, alpha=1)
         EM_prevs = compute_baseline(EMq, data_matrix, test_chosen, prevs_range, optim_params)
 
-        optim_params={'C':[1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4]}
-        SVMnkld=SVMperfQuantifier(svmperf_base=SVMPERF_BASE, loss='nkld', verbose=False)
-        svm_nkld_prevs = compute_baseline(SVMnkld, data_matrix, test_chosen, prevs_range, optim_params)
-
-        SVMq = SVMperfQuantifier(svmperf_base=SVMPERF_BASE, loss='q', verbose=False)
-        svm_q_prevs    = compute_baseline(SVMq, data_matrix, test_chosen, prevs_range, optim_params)
-
-
-        mehotds_names = ['cc', 'pcc', 'acc', 'apcc', 'em', 'svm-nkld', 'svm-q', model_conf]
-        methods_prevalences = [cc_prevs, pcc_prevs, acc_prevs, apcc_prevs, EM_prevs, svm_nkld_prevs, svm_q_prevs, net_prevs]
+        mehotds_names = ['em']
+        methods_prevalences = [EM_prevs]
 
     else:
         mehotds_names = [model_conf]
@@ -107,10 +96,10 @@ def main(args):
     mrae_samples = eval_metric(mrae, true_prevs, *methods_prevalences)
 
     if not args.net_only:
-        print('Samples MAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} em={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mae_samples))
-        print('Samples MSE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} em={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mse_samples))
-        print('Samples MNKLD:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} em={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mnkld_samples))
-        print('Samples MRAE:\tcc={:.5f} pcc={:.5f} acc={:.5f} apcc={:.5f} em={:.5f} svm-nkld={:.5f} svm-q={:.5f} net={:.5f}'.format(*mrae_samples))
+        print('Samples MAE:\tem={:.5f}'.format(*mae_samples))
+        print('Samples MSE:\tem={:.5f}'.format(*mse_samples))
+        print('Samples MNKLD:\tem={:.5f}'.format(*mnkld_samples))
+        print('Samples MRAE:\tem={:.5f}'.format(*mrae_samples))
 
     # plots ---------------------------------------------------------------------------------------------------
     methods_prevalences = np.array(methods_prevalences)

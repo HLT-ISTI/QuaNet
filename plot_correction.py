@@ -10,7 +10,7 @@ def __create_dir(savedir,savename):
         if not os.path.exists(savedir):
             os.makedirs(savedir)
 
-def plot_corr(prevalences, methods, labels, maxpoints=None, savedir=None, savename=None, train_prev=None, test_prev=None, title='correction methods'):
+def plot_corr(prevalences, methods, labels, savedir=None, savename=None, train_prev=None, test_prev=None, title='correction methods'):
     assert len(methods) == len(labels), 'label lenghts mismatch'
     __create_dir(savedir,savename)
 #    plt.clf()
@@ -19,8 +19,8 @@ def plot_corr(prevalences, methods, labels, maxpoints=None, savedir=None, savena
 
     ave = np.array([[np.mean(method_i[prevalences == p]) for p in x_ticks] for method_i in methods])
     std = np.array([[np.std(method_i[prevalences == p]) for p in x_ticks] for method_i in methods])
-    markers = ['s', 'o', 'v', '^', 'd', '<', '>', 'p']
-    labels_mod = {'cc':'CC', 'acc':'ACC', 'pcc':'PA', 'apcc':'SPA','QN-E-SL':'QuaNet'}
+    markers = ['p', 's', 'o', 'v', '^', 'd', '<', '>']
+    labels_mod = {'cc':'CC', 'acc':'ACC', 'pcc':'PA', 'apcc':'SPA','em':'EM','svm-nkld':'SVM$^{NKLD}$','svm-Q':'SVM$^{q}$','QN-E-SL':'QuaNet'}
 
     fig, ax = plt.subplots()
     ax.set_aspect('equal')

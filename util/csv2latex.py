@@ -27,14 +27,16 @@ def pval_interpretation(pval):
     else:
         return 2 # are indistinguishable
 
-def result2str(mu,std,dags,isbest,precision=4):
+def result2str(mu,std,rel_det,dags,isbest,precision=4):
     dags = '\dag'*dags
-    strval = '{:.3f} $\pm$ {:.2e}{}'.format(mu,std,dags)
-    #strval = '{:.4f}{}'.format(mu,  dags)
+    #strval = '{:.3f} $\pm$ {:.2e}{}'.format(mu,std,dags)
+    strval = '{:.3f} (+{:.1f}\%){}'.format(mu, rel_det, dags)
     if isbest:
         strval = '\\textbf{'+strval+'}'
     return strval
 
+def rel_deterioration(ref_score, score):
+    return 100*(score - ref_score)/ref_score
 
 score_is_error = True
 best = np.argmin if score_is_error else np.argmax
@@ -53,15 +55,17 @@ for col in piv.columns:
             if len(scores_i) == len(scores_best):
                 _,pval=stat_sig_test(scores_i, scores_best)
                 n_dags = pval_interpretation(pval)
+                rel_error = rel_deterioration(means[best_pos],means[pos])
             else:
                 n_dags=0
         else:
+            rel_error = 0
             n_dags = 0
-        col_index.iloc[pos] = result2str(means[pos],stds[pos],n_dags,isbest=(pos==best_pos or means[pos]==means[best_pos]))
+        col_index.iloc[pos] = result2str(means[pos],stds[pos],rel_error,n_dags,isbest=(pos==best_pos or means[pos]==means[best_pos]))
 
 
 #reorder
-piv = piv.reindex_axis(['cc','pcc','acc','apcc','svm-nkld','svm-q','QN','QN-E-SL'], axis='rows')
+piv = piv.reindex_axis(['cc','pcc','acc','apcc','svm-nkld','svm-q','em','QN-E-SL'], axis='rows')
 piv = piv.reindex_axis(['mae','mrae','mnkld'], axis='columns', level='metric')
 piv = piv.reindex_axis(['imdb','hp','kindle'], axis='columns', level='dataset')
 
@@ -71,8 +75,7 @@ piv = piv.reindex_axis(['imdb','hp','kindle'], axis='columns', level='dataset')
 
 #postprocessing
 latex = piv.to_latex(escape=False)
-latex = latex.replace('hp','HP').replace('kindle','Kindle').replace('imdb','IMDB') \
-    .replace('0.', '.')\
+latex = latex.replace('hp','HP').replace('kindle','Kindle').replace('imdb','IMDB')\
     .replace('\\toprule', '\\hline').replace('\midrule','\\hline').replace('\\bottomrule','\\hline')
 latex = '\\begin{table}\n' \
         + '\\resizebox{\\textwidth}{!} {\n' \
