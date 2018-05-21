@@ -158,6 +158,9 @@ def mae(prevs, prevs_hat):
 def mse(prevs, prevs_hat):
     return Mean(SE, prevs, prevs_hat)
 
+def mkld(prevs, prevs_hat):
+    return Mean(KLD, prevs, prevs_hat)
+
 def mnkld(prevs, prevs_hat):
     return Mean(NKLD, prevs, prevs_hat)
 
