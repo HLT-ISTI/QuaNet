@@ -77,13 +77,12 @@ def main(args):
         print('Computing E-M, SVM_NKLD and SVM_Q methods')
         data_matrix = loadDataset(dataset=args.data, mode='matrix')
 
-        optim_params = {'alpha': [1e-4, 1e-3, 1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4, 1e5], 'fit_prior':[True,False]}
-        #optim_params = {'alpha': [0.1], 'fit_prior': [False]}
-        EMq = EM_Quantifier(probabilistic_learner=MultinomialNB, alpha=1)
-        EM_prevs = compute_baseline(EMq, data_matrix, test_chosen, prevs_range, optim_params)
+        optim_params = {'C': [1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4]}
+        SVMkld = SVMperfQuantifier(svmperf_base=SVMPERF_BASE, loss='kld', verbose=False)
+        svm_kld_prevs = compute_baseline(SVMkld, data_matrix, test_chosen, prevs_range, optim_params)
 
-        mehotds_names = ['em']
-        methods_prevalences = [EM_prevs]
+        mehotds_names = ['svm-kld']
+        methods_prevalences = [svm_kld_prevs]
 
     else:
         mehotds_names = [model_conf]
@@ -92,6 +91,7 @@ def main(args):
     print('Compute MAE, MSE, MNKLD, and MRAE')
     mae_samples = eval_metric(mae, true_prevs, *methods_prevalences)
     mse_samples = eval_metric(mse, true_prevs, *methods_prevalences)
+    mkld_samples = eval_metric(mkld, true_prevs, *methods_prevalences)
     mnkld_samples = eval_metric(mnkld, true_prevs, *methods_prevalences)
     mrae_samples = eval_metric(mrae, true_prevs, *methods_prevalences)
 
@@ -119,7 +119,7 @@ def main(args):
         df = pd.DataFrame(columns=['method', 'metric', 'score', 'mode', 'dataset', 'notes'])
 
     # fill in the scores for each method and metric
-    for metric_name, scores in zip(['mae','mse','mnkld','mrae'],[mae_samples,mse_samples,mnkld_samples,mrae_samples]):
+    for metric_name, scores in zip(['mae','mse','mkld','mnkld','mrae'],[mae_samples,mse_samples,mkld_samples,mnkld_samples,mrae_samples]):
         for method_position, method_name in enumerate(mehotds_names):
             df.loc[len(df)] = [method_name, metric_name, scores[method_position], 'sample', args.data, args.result_note]
 

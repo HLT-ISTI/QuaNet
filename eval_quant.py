@@ -86,6 +86,9 @@ def main(args):
         EM_prevs = compute_baseline(EMq, data_matrix, test_chosen, prevs_range, optim_params)
 
         optim_params={'C':[1e-2, 1e-1, 1e0, 1e1, 1e2, 1e3, 1e4]}
+        SVMkld = SVMperfQuantifier(svmperf_base=SVMPERF_BASE, loss='kld', verbose=False)
+        svm_kld_prevs = compute_baseline(SVMkld, data_matrix, test_chosen, prevs_range, optim_params)
+
         SVMnkld=SVMperfQuantifier(svmperf_base=SVMPERF_BASE, loss='nkld', verbose=False)
         svm_nkld_prevs = compute_baseline(SVMnkld, data_matrix, test_chosen, prevs_range, optim_params)
 
