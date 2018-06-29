@@ -3,7 +3,7 @@ from time import time
 
 from plot_correction import plot_corr, plot_loss
 from quantification.helpers import *
-from quantification.nets.quantification import LSTMQuantificationNet
+from nets.quantification import LSTMQuantificationNet
 from util.helpers import *
 
 
