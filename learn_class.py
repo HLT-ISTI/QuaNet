@@ -1,8 +1,7 @@
 import argparse
 from time import time
-
 from quantification.helpers import *
-from quantification.nets.classification import LSTMTextClassificationNet
+from nets.classification import LSTMTextClassificationNet
 from util.helpers import *
 
 

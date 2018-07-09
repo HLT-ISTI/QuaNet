@@ -3,41 +3,19 @@ set -x
 
 #quantumconf="--stats-layer --stats-lstm"
 
-#run=2
-#data="hp"
-#classmodel=../models/class_net.$data.$run.pt
-#quantmodel=../models/quant_net.$data.$run.pt
-#quantmodelES=../models/quant_netES.$data.$run.pt
-#python3 eval_em.py $data $classmodel $quantmodelES $run -E --plotdir ../eval_plots_formanbounds_EM_sel --results ../results/tmp.txt --result-note $run --include-bounds
 
-#run=9
-#data="imdb"
-#classmodel=../models/class_net.$data.$run.pt
-#quantmodel=../models/quant_net.$data.$run.pt
-#quantmodelES=../models/quant_netES.$data.$run.pt
-#python3 eval_em.py $data $classmodel $quantmodelES $run -E --plotdir ../eval_plots_formanbounds_EM_sel --results ../results/tmp.txt --result-note $run --include-bounds
-
-
-#run=0
-#data="kindle"
-#classmodel=../models/class_net.$data.$run.pt
-#quantmodel=../models/quant_net.$data.$run.pt
-#quantmodelES=../models/quant_netES.$data.$run.pt
-#python3 eval_em.py $data $classmodel $quantmodelES $run -E --plotdir ../eval_plots_formanbounds_EM_sel --results ../results/tmp.txt --result-note $run --include-bounds
-
-
-for run in {0..9} ; do
+for run in {0..5} ; do
 for data in "kindle" "hp" "imdb" ; do
-	classmodel=../models/class_net.$data.$run.pt
-	quantmodel=../models/quant_net.$data.$run.pt
-	quantmodelE=../models/quant_netE.$data.$run.pt
-	quantmodelS=../models/quant_netS.$data.$run.pt
-	quantmodelES=../models/quant_netES.$data.$run.pt
+	classmodel=../models_timing/class_net.$data.$run.pt
+	quantmodel=../models_timing/quant_net.$data.$run.pt
+	quantmodelE=../models_timing/quant_netE.$data.$run.pt
+	quantmodelS=../models_timing/quant_netS.$data.$run.pt
+	quantmodelES=../models_timing/quant_netES.$data.$run.pt
 	
-#	python3 learn_class.py $data --output $classmodel
+	python3 learn_class.py $data --output $classmodel
 
-#	python3 learn_quant.py $data $classmodel -E --stats-layer --output $quantmodelES --include-bounds
-	python3 eval_quant.py $data $classmodel $quantmodelES $run -E --plotdir ../eval_plots_formanbounds_kld --results ../results/formanbounds_kld.txt --result-note $run --include-bounds
+	python3 learn_quant.py $data $classmodel -E --stats-layer --output $quantmodelES --include-bounds
+#	python3 eval_em.py $data $classmodel $quantmodelES $run -E --plotdir ../eval_plots_formanbounds_svmkld --results ../results/formanbounds_svmkld.txt --result-note $run --include-bounds
 
 #	python3 learn_quant.py $data $classmodel --output $quantmodel --include-bounds
 #	python3 eval_quant.py $data $classmodel $quantmodel $run --plotdir ../eval_plots_bound --results ../results/eval_results_bound.txt --result-note $run --net-only

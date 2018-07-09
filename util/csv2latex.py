@@ -8,7 +8,7 @@ pd.set_option('display.max_columns', 500)
 pd.set_option('display.width', 1000)
 
 
-df = pd.read_csv('../../results/formanbounds.txt', index_col=0)
+df = pd.read_csv('../../results/formanbounds_kld.txt', index_col=0)
 #df = pd.read_csv('eval_results_bound.txt',index_col=0)
 
 mu_std_cnt = lambda scores: (np.mean(scores),np.std(scores),[scores.tolist()])
@@ -30,9 +30,11 @@ def pval_interpretation(pval):
 def result2str(mu,std,rel_det,dags,isbest,precision=4):
     dags = '\dag'*dags
     #strval = '{:.3f} $\pm$ {:.2e}{}'.format(mu,std,dags)
-    strval = '{:.3f} (+{:.1f}\%){}'.format(mu, rel_det, dags)
+    #strval = '{:.3f} & (+{:.1f}\%){}'.format(mu, rel_det, dags)
     if isbest:
-        strval = '\\textbf{'+strval+'}'
+        strval = '\\textbf{'+('%.3f'%mu)+'} &'
+    else:
+        strval = '{:.3f} & (+{:.1f}\%){}'.format(mu, rel_det, dags)
     return strval
 
 def rel_deterioration(ref_score, score):
@@ -65,9 +67,9 @@ for col in piv.columns:
 
 
 #reorder
-piv = piv.reindex_axis(['cc','pcc','acc','apcc','svm-nkld','svm-q','em','QN-E-SL'], axis='rows')
-piv = piv.reindex_axis(['mae','mrae','mnkld'], axis='columns', level='metric')
-piv = piv.reindex_axis(['imdb','hp','kindle'], axis='columns', level='dataset')
+piv = piv.reindex_axis(['cc','acc','pcc','apcc','svm-kld','svm-nkld','svm-q','em','QN-E-SL'], axis='rows')
+piv = piv.reindex_axis(['mae','mrae','mkld'], axis='columns', level='metric')
+piv = piv.reindex_axis(['imdb','kindle','hp'], axis='columns', level='dataset')
 
 # nonefun = lambda x:x
 #
