@@ -162,9 +162,9 @@ def parseargs(args):
     parser.add_argument('-S', '--samplelength',
                         help='Length of the samples (in number of documents)', type=int, default=500)
     parser.add_argument('--plotdir',
-                        help='Path to the plots', type=str, default='../plots')
+                        help='Path to the plots', type=str, default='./results/plots')
     parser.add_argument('--results',
-                        help='Path to the results', type=str, default='../results.txt')
+                        help='Path to the results', type=str, default='./results/results.txt')
     parser.add_argument('--result-note',
                         help='Adds a note to the results (e.g., "run0")', type=str, default='')
     parser.add_argument('--include-bounds',

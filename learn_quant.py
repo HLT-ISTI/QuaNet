@@ -1,9 +1,12 @@
 import argparse
 from time import time
+
 from plot_correction import plot_corr, plot_loss
 from quantification.helpers import *
 from nets.quantification import LSTMQuantificationNet
 from util.helpers import *
+
+
 # from inntt import *
 
 
@@ -89,7 +92,8 @@ def main(args):
         batch_yhat, batch_y, batch_p, stats, _ = \
             quantification_uniform_sampling(val_pos_ids, val_neg_ids, val_yhat_pos, val_yhat_neg,
                                             val_tpr, val_fpr, val_ptpr, val_pfpr,
-                                            input_size, args.batchsize, sample_length, prevs_range=prevs_range)
+                                            input_size, args.batchsize, sample_length,
+                                            prevs_range)
         quant_net.train()
         optimizer.zero_grad()
         batch_phat = quant_net.forward(batch_yhat, stats)
@@ -97,7 +101,7 @@ def main(args):
         quant_loss.backward()
         optimizer.step()
 
-        loss = quant_loss.data[0]
+        loss = quant_loss.item()
         loss_sum += loss
         losses.append(loss)
 
@@ -170,7 +174,7 @@ def parseargs(args):
     parser.add_argument('--incremental',
                         help='Activates the incremental mode for the sample_length', default=False, action='store_true')
     parser.add_argument('-I', '--maxiter',
-                        help='Maximum number of iterations', type=int, default=20000)
+                        help='Maximum number of iterations', type=int, default=10000)
     parser.add_argument('-S', '--samplelength',
                         help='Length of the samples (in number of documents)', type=int, default=500)
     parser.add_argument('-O', '--output',

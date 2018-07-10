@@ -2,13 +2,14 @@ import torch
 import torch.nn.functional as F
 from keras.datasets import imdb
 from keras.preprocessing import sequence
+from torch.cuda import empty_cache
 
 max_features = 1000
 maxlen = 80
-batch_size = 500
-embedding_dims = 25
-hidden_dims = 25
-epochs = 50
+batch_size = 50
+embedding_dims = 50
+hidden_dims = 50
+epochs = 20
 dropout = 0.2
 
 loss_function = torch.nn.BCELoss()
@@ -172,14 +173,18 @@ results = list()
 runs = 10
 
 for run in range(runs):
-
     # Simple LSTM
 
     net = LSTMNet(max_features, embedding_dims, 1, hidden_dims, dropout)
     net.cuda()
     optimizer = torch.optim.Adam(net.parameters())
+    empty_cache()
 
+    print('LSTM', flush=True)
     results.append(('LSTM', fit(x_train, y_train, x_test, y_test, net, optimizer, loss_function, batch_size, epochs)))
+
+    del net, optimizer
+    empty_cache()
 
     # Bidirectional LSTM
 
@@ -187,7 +192,11 @@ for run in range(runs):
     net.cuda()
     optimizer = torch.optim.Adam(net.parameters())
 
+    print('BiLSTM', flush=True)
     results.append(('BiLSTM', fit(x_train, y_train, x_test, y_test, net, optimizer, loss_function, batch_size, epochs)))
+
+    del net, optimizer
+    empty_cache()
 
     # Repeated sequence + Simple LSTM
 
@@ -195,8 +204,12 @@ for run in range(runs):
     net.cuda()
     optimizer = torch.optim.Adam(net.parameters())
 
+    print('2S-LSTM', flush=True)
     results.append(
         ('2S-LSTM', fit(d_x_train, y_train, d_x_test, y_test, net, optimizer, loss_function, batch_size, epochs)))
+
+    del net, optimizer
+    empty_cache()
 
     # Repeated sequence + Bidirectional LSTM
 
@@ -204,8 +217,12 @@ for run in range(runs):
     net.cuda()
     optimizer = torch.optim.Adam(net.parameters())
 
+    print('2S-BiLSTM', flush=True)
     results.append(
         ('2S-BiLSTM', fit(d_x_train, y_train, d_x_test, y_test, net, optimizer, loss_function, batch_size, epochs)))
+
+    del net, optimizer
+    empty_cache()
 
     # Repeat LSTM
 
@@ -213,7 +230,11 @@ for run in range(runs):
     net.cuda()
     optimizer = torch.optim.Adam(net.parameters())
 
+    print('ReLSTM', flush=True)
     results.append(('ReLSTM', fit(x_train, y_train, x_test, y_test, net, optimizer, loss_function, batch_size, epochs)))
+
+    del net, optimizer
+    empty_cache()
 
     # Repeat Bidirectional LSTM
 
@@ -221,8 +242,12 @@ for run in range(runs):
     net.cuda()
     optimizer = torch.optim.Adam(net.parameters())
 
+    print('ReBiLSTM', flush=True)
     results.append(
         ('ReBiLSTM', fit(x_train, y_train, x_test, y_test, net, optimizer, loss_function, batch_size, epochs)))
+
+    del net, optimizer
+    empty_cache()
 
 print('last epoch')
 for method, epoch_results in results:
