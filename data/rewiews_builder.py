@@ -9,7 +9,7 @@ import ntpath
 from datetime import datetime
 from copy import copy
 
-from feature_selection.round_robin import RoundRobin
+
 
 UNK = 'UNK'
 
