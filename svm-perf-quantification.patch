@@ -1,0 +1,207 @@
+Files svm-perf-original/LICENSE.txt and svm-perf-quantification/LICENSE.txt are identical
+Files svm-perf-original/Makefile and svm-perf-quantification/Makefile are identical
+Files svm-perf-original/svm_light/kernel.h and svm-perf-quantification/svm_light/kernel.h are identical
+Files svm-perf-original/svm_light/LICENSE.txt and svm-perf-quantification/svm_light/LICENSE.txt are identical
+Files svm-perf-original/svm_light/Makefile and svm-perf-quantification/svm_light/Makefile are identical
+Files svm-perf-original/svm_light/svm_classify.c and svm-perf-quantification/svm_light/svm_classify.c are identical
+Files svm-perf-original/svm_light/svm_common.c and svm-perf-quantification/svm_light/svm_common.c are identical
+Files svm-perf-original/svm_light/svm_common.h and svm-perf-quantification/svm_light/svm_common.h are identical
+Files svm-perf-original/svm_light/svm_hideo.c and svm-perf-quantification/svm_light/svm_hideo.c are identical
+Files svm-perf-original/svm_light/svm_learn.c and svm-perf-quantification/svm_light/svm_learn.c are identical
+Files svm-perf-original/svm_light/svm_learn.h and svm-perf-quantification/svm_light/svm_learn.h are identical
+Files svm-perf-original/svm_light/svm_learn_main.c and svm-perf-quantification/svm_light/svm_learn_main.c are identical
+Files svm-perf-original/svm_light/svm_loqo.c and svm-perf-quantification/svm_light/svm_loqo.c are identical
+Files svm-perf-original/svm_struct/Makefile and svm-perf-quantification/svm_struct/Makefile are identical
+Files svm-perf-original/svm_struct/svm_struct_classify.c and svm-perf-quantification/svm_struct/svm_struct_classify.c are identical
+Files svm-perf-original/svm_struct/svm_struct_common.c and svm-perf-quantification/svm_struct/svm_struct_common.c are identical
+Files svm-perf-original/svm_struct/svm_struct_common.h and svm-perf-quantification/svm_struct/svm_struct_common.h are identical
+Files svm-perf-original/svm_struct/svm_struct_learn.c and svm-perf-quantification/svm_struct/svm_struct_learn.c are identical
+Files svm-perf-original/svm_struct/svm_struct_learn.h and svm-perf-quantification/svm_struct/svm_struct_learn.h are identical
+diff -urBNs svm-perf-original/svm_struct/svm_struct_main.c svm-perf-quantification/svm_struct/svm_struct_main.c
+--- svm-perf-original/svm_struct/svm_struct_main.c	2009-03-13 23:41:32.000000000 +0100
++++ svm-perf-quantification/svm_struct/svm_struct_main.c	2013-04-08 11:54:49.959631000 +0200
+@@ -128,7 +128,7 @@
+   struct_parm->newconstretrain=100;
+   struct_parm->ccache_size=5;
+   struct_parm->batch_size=100;
+-
++  struct_parm->loss_parm=1.0;
+   strcpy (modelfile, "svm_struct_model");
+   strcpy (learn_parm->predfile, "trans_predictions");
+   strcpy (learn_parm->alphafile, "");
+@@ -189,6 +189,7 @@
+       case '-': strcpy(struct_parm->custom_argv[struct_parm->custom_argc++],argv[i]);i++; strcpy(struct_parm->custom_argv[struct_parm->custom_argc++],argv[i]);break; 
+       case 'v': i++; (*struct_verbosity)=atol(argv[i]); break;
+       case 'y': i++; (*verbosity)=atol(argv[i]); break;
++      case '!': i++; struct_parm->loss_parm=atof(argv[i]); break;
+       default: printf("\nUnrecognized option %s!\n\n",argv[i]);
+ 	       print_help();
+ 	       exit(0);
+diff -urBNs svm-perf-original/svm_struct_api.c svm-perf-quantification/svm_struct_api.c
+--- svm-perf-original/svm_struct_api.c	2009-09-07 20:44:30.000000000 +0200
++++ svm-perf-quantification/svm_struct_api.c	2013-04-08 11:56:27.381311177 +0200
+@@ -20,6 +20,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <math.h>
+ #include "svm_struct_api.h"
+ #include "svm_light/svm_common.h"
+ #include "svm_struct/svm_struct_common.h"
+@@ -27,7 +28,10 @@
+ 
+ #define MAX(x,y)      ((x) < (y) ? (y) : (x))
+ #define MIN(x,y)      ((x) > (y) ? (y) : (x))
++#define ABS(x)      ((x) < (0) ? (-(x)) : (x))
+ #define SIGN(x)       ((x) > (0) ? (1) : (((x) < (0) ? (-1) : (0))))
++#define PI (3.141592653589793)
++#define EPS 0.000001
+ 
+ int compareup(const void *a, const void *b) 
+ {
+@@ -82,6 +86,10 @@
+ double swappedpairs_loss(LABEL y, LABEL ybar);
+ double avgprec_loss(LABEL y, LABEL ybar);
+ 
++double kldiv(int a, int b, int c, int d);
++
++double kldiv_loss(int a, int b, int c, int d);
++
+ void        svm_struct_learn_api_init(int argc, char* argv[])
+ {
+   /* Called in learning part before anything else is done to allow
+@@ -184,7 +192,9 @@
+      || (sparm->loss_function == ERRORRATE)
+      || (sparm->loss_function == PRBEP) 
+      || (sparm->loss_function == PREC_K) 
+-     || (sparm->loss_function == REC_K)) {
++     || (sparm->loss_function == REC_K)
++     || (sparm->loss_function == KLDIV)
++     ) {
+     for(i=0;i<sample.examples[0].x.totdoc;i++) {
+       if(sample.examples[0].y.class[i]>0)
+ 	sample.examples[0].y.class[i]=0.5*100.0/(numn+nump);
+@@ -523,7 +533,9 @@
+      || (sparm->loss_function == ERRORRATE)
+      || (sparm->loss_function == PRBEP) 
+      || (sparm->loss_function == PREC_K) 
+-     || (sparm->loss_function == REC_K)) {
++     || (sparm->loss_function == REC_K)
++     || (sparm->loss_function == KLDIV)
++     ) {
+     ybar=find_most_violated_constraint_thresholdmetric(x,y,sm,sparm,
+ 						       sparm->loss_type);
+   }
+@@ -564,7 +576,9 @@
+      || (sparm->loss_function == FONE) 
+      || (sparm->loss_function == PRBEP) 
+      || (sparm->loss_function == PREC_K) 
+-     || (sparm->loss_function == REC_K)) 
++     || (sparm->loss_function == REC_K)
++     || (sparm->loss_function == KLDIV)
++	  ) 
+     ybar=find_most_violated_constraint_thresholdmetric(x,y,sm,sparm,
+ 						       sparm->loss_type);
+   else if((sparm->loss_function == SWAPPEDPAIRS))
+@@ -750,6 +764,8 @@
+ 	loss=prec_k_loss(a,numn-d,nump-a,d);
+       else if((sparm->loss_function == REC_K) && (a+numn-d <= prec_rec_k)) 
+ 	loss=rec_k_loss(a,numn-d,nump-a,d);
++      else if(sparm->loss_function == KLDIV)
++	loss=kldiv_loss(a,numn-d,nump-a,d);
+       else {
+ 	loss=0;
+       }
+@@ -1242,6 +1258,9 @@
+   else if(sparm->loss_function == AVGPREC) {
+     loss=avgprec_loss(y,ybar);
+   }
++  else if(sparm->loss_function == KLDIV) {
++    loss=kldiv_loss(a,b,c,d);
++  }
+   else {
+     /* Put your code for different loss functions here. But then
+        find_most_violated_constraint_???(x, y, sm) has to return the
+@@ -1513,7 +1532,8 @@
+   printf("    %2d  Prec/Rec Breakeven: 100 minus PRBEP in percent.\n",PRBEP);
+   printf("    %2d  Prec@k: 100 minus precision at k in percent.\n",PREC_K);
+   printf("    %2d  Rec@k: 100 minus recall at k in percent.\n",REC_K);
+-  printf("    %2d  ROCArea: Percentage of swapped pos/neg pairs (i.e. 100 - ROCArea).\n\n",SWAPPEDPAIRS);
++  printf("    %2d  ROCArea: Percentage of swapped pos/neg pairs (i.e. 100 - ROCArea).\n",SWAPPEDPAIRS);
++  printf("    %2d  Kullback-Leibler divergence.\n",KLDIV);
+   printf("NOTE: The '-c' parameters in SVM-light and SVM-perf are related as\n");
+   printf("      c_light = c_perf*100/n for the 'Errorrate' loss function, where n is the\n");
+   printf("      number of training examples.\n\n");
+@@ -1795,7 +1815,9 @@
+ 
+ double fone_loss(int a, int b, int c, int d) 
+ {
+-  return(100.0*(1.0-fone(a,b,c,d)));
++  double value = (1.0-fone(a,b,c,d));
++  // printf("f_1\t%g\n",value);
++  return(100.0*value);
+ }
+ 
+ double errorrate_loss(int a, int b, int c, int d) 
+@@ -1845,5 +1867,24 @@
+   return(100.0-avgprec_compressed(y,ybar));
+ }
+ 
++double kldiv(int a, int b, int c, int d)
++{
++  double sum = (double)a+b+c+d+4*EPS;
++  double pab = (a+b+2*EPS)/sum;
++  double pac = (a+c+2*EPS)/sum;
++  double pbd = (b+d+2*EPS)/sum;
++  double pcd = (c+d+2*EPS)/sum;
++
++  double kl = pac*log(pac/pab)+pbd*log(pbd/pcd);
++
++  return kl;
++}
++
++double kldiv_loss(int a, int b, int c, int d)
++{
++  double value = kldiv(a,b,c,d);
+ 
++  //  printf("kldiv\t%g\n",value);
+ 
++  return value;
++}
+Files svm-perf-original/svm_struct_api.h and svm-perf-quantification/svm_struct_api.h are identical
+diff -urBNs svm-perf-original/svm_struct_api_types.h svm-perf-quantification/svm_struct_api_types.h
+--- svm-perf-original/svm_struct_api_types.h	2009-09-07 20:46:17.000000000 +0200
++++ svm-perf-quantification/svm_struct_api_types.h	2013-04-08 11:52:49.429317442 +0200
+@@ -28,14 +28,15 @@
+ # define INST_VERSION_DATE  "15.07.2009"
+ 
+ /* Identifiers for loss functions */
+-#define ZEROONE      0
+-#define FONE         1
+-#define ERRORRATE    2
+-#define PRBEP        3
+-#define PREC_K       4
+-#define REC_K        5
+-#define SWAPPEDPAIRS 10
+-#define AVGPREC      11
++#define ZEROONE       0
++#define FONE          1
++#define ERRORRATE     2
++#define PRBEP         3
++#define PREC_K        4
++#define REC_K         5
++#define SWAPPEDPAIRS  10
++#define AVGPREC       11
++#define KLDIV         12
+ 
+ /* default precision for solving the optimization problem */
+ # define DEFAULT_EPS         0.1 
+@@ -169,6 +170,7 @@
+ 				  svm_perf_classify. This uses more
+ 				  memory, but is faster if the support
+ 				  vectors in the model are dense. */
++  double loss_parm;
+ } STRUCT_LEARN_PARM;
+ 
+ typedef struct struct_test_stats {
+Files svm-perf-original/svm_struct_learn_custom.c and svm-perf-quantification/svm_struct_learn_custom.c are identical
