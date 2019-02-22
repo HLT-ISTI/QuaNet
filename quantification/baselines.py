@@ -117,6 +117,7 @@ class EM_Quantifier(BaseQuantifier):
 
             # M-step: qs_pos is Ps+1(y=+1)
             qs_pos = np.mean(ps)
+            qs_neg = 1 - qs_pos
 
             self.print(('s={} qs_pos={:.6f}'+('' if y is None else ' true={:.6f}'.format(trueprev))).format(s,qs_pos))
 
